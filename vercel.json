@@ -1,0 +1,10 @@
+{
+  "regions": ["hnd1"],
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/index" }
+  ],
+  "crons": [
+    { "path": "/api/cron/refresh-resi", "schedule": "0 7 * * *" },
+    { "path": "/api/cron/refresh-resi", "schedule": "0 12 * * *" }
+  ]
+}

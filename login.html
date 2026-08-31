@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Login - Flowmua</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="container" style="padding-top: 72px;">
+  <div style="text-align:center; margin-bottom: 28px;">
+    <div style="width:48px; height:48px; border-radius:12px; background:var(--primary); color:white; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:20px; margin:0 auto 12px;">F</div>
+    <div style="font-size: 20px; font-weight: 800; letter-spacing:-0.01em;">Flowmua</div>
+    <div style="color: var(--muted); font-size: 13px; margin-top:2px;">Sistem tracking packing & pengiriman</div>
+  </div>
+  <div class="card">
+    <label>Username</label>
+    <input id="username" type="text" placeholder="Masukkan username" autocomplete="username">
+    <label>Password</label>
+    <input id="password" type="password" placeholder="Masukkan password" autocomplete="current-password">
+    <div class="error-msg" id="errorMsg" style="display:none;"></div>
+    <button class="btn" id="loginBtn" onclick="doLogin()">Masuk</button>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script>
+// Kalau sudah login, langsung redirect sesuai role
+(function() {
+  const user = getUser();
+  if (getToken() && user) redirectByRole(user.role);
+})();
+
+function redirectByRole(role) {
+  if (role === 'admin' || role === 'cs') window.location.href = '/dashboard.html';
+  else if (role === 'packing') window.location.href = '/packing.html';
+}
+
+async function doLogin() {
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  const errBox = document.getElementById('errorMsg');
+  const btn = document.getElementById('loginBtn');
+  errBox.style.display = 'none';
+
+  if (!username || !password) {
+    errBox.textContent = 'Username dan password wajib diisi';
+    errBox.style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Memproses...';
+  try {
+    const data = await api('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) });
+    setSession(data.token, data.user);
+    redirectByRole(data.user.role);
+  } catch (e) {
+    errBox.textContent = e.message;
+    errBox.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Masuk';
+  }
+}
+
+document.getElementById('password').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') doLogin();
+});
+</script>
+</body>
+</html>
