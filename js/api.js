@@ -72,7 +72,7 @@ const NAV_ITEMS = [
   { key: 'affiliate', label: 'Affiliate', href: '/dashboard.html?tab=affiliate', roles: ['admin', 'cs'] },
   { key: 'users', label: 'Kelola Akun', href: '/dashboard.html?tab=users', roles: ['admin'] },
   { key: 'packing', label: 'Scan Packing', href: '/packing.html', roles: ['admin', 'packing'] },
-  { key: 'inventory', label: 'Inventory', href: '/inventory.html', roles: ['admin', 'inventory', 'packing'] },
+  { key: 'inventory', label: 'Inventory', href: '/inventory.html', roles: ['admin', 'inventory', 'packing', 'cs'] },
 ];
 
 function initials(name) {
