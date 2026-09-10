@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Inventory - Flowmua</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="appShell"></div>
+
+<div class="container-wide">
+  <h1 class="page-title">Inventory Stock</h1>
+  <p class="page-subtitle">Pantau stok produk secara real-time. Stok otomatis berkurang begitu pesanan di-packing.</p>
+
+  <div class="inv-summary-row">
+    <div class="stat-card">
+      <div class="stat-value" id="sumTotalProduk">-</div>
+      <div class="stat-label">Total Produk</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="sumTotalUnit" style="color:var(--primary);">-</div>
+      <div class="stat-label">Total Unit Stok</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="sumLowStock" style="color:var(--danger);">-</div>
+      <div class="stat-label">Stok Menipis</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="inv-toolbar">
+      <input type="text" id="invSearch" placeholder="Cari nama / SKU..." oninput="onSearchInput()">
+      <select id="invCategoryFilter" onchange="loadProducts()">
+        <option value="">Semua Kategori</option>
+      </select>
+      <label style="display:flex; align-items:center; gap:6px; font-size:13px; color:var(--muted); cursor:pointer; margin:0;">
+        <input type="checkbox" id="invLowStockOnly" style="width:auto; margin:0;" onchange="loadProducts()"> Stok menipis saja
+      </label>
+      <span style="flex:1;"></span>
+      <select id="invRakFilter" onchange="loadProducts()">
+        <option value="">Semua Rak</option>
+      </select>
+      <span class="hint" id="invLiveIndicator">● live</span>
+      <button class="btn-outline" style="width:auto; margin:0;" onclick="openRakManageModal()">🗂 Kelola Rak</button>
+      <button class="btn" id="btnAddProduct" onclick="openProductForm()" style="width:auto; display:none;">+ Tambah Produk</button>
+    </div>
+
+    <div id="invGrid" class="inv-grid"><div class="empty-state">Memuat produk...</div></div>
+  </div>
+</div>
+
+<!-- Modal: Tambah/Edit Produk -->
+<div class="modal-overlay" id="productFormOverlay" style="display:none;" onclick="if(event.target===this) closeProductForm();">
+  <div class="modal-box" style="max-width:440px;">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="pfTitle">Tambah Produk</div>
+        <div class="modal-subtitle">Isi detail produk, lalu simpan</div>
+      </div>
+      <button class="modal-close" onclick="closeProductForm()">&times;</button>
+    </div>
+    <div style="margin-top:12px; max-height:70vh; overflow-y:auto; padding-right:2px;">
+      <div class="inv-image-picker" id="pfImagePicker" onclick="document.getElementById('pfImageInput').click()">
+        <span id="pfImagePlaceholder">📷 Klik untuk pilih gambar produk</span>
+      </div>
+      <input type="file" id="pfImageInput" accept="image/*" style="display:none;" onchange="onProductImageChosen(event)">
+
+      <label>SKU *</label>
+      <input id="pfSku" type="text" placeholder="Contoh: SP30S">
+      <label>Nama Produk *</label>
+      <input id="pfName" type="text" placeholder="Nama produk">
+      <div class="field-row" style="display:flex; gap:10px;">
+        <div style="flex:1;">
+          <label>Kategori</label>
+          <input id="pfCategory" type="text" placeholder="Opsional">
+        </div>
+        <div style="flex:1;">
+          <label>Satuan</label>
+          <input id="pfUnit" type="text" placeholder="pcs" value="pcs">
+        </div>
+      </div>
+      <div class="field-row" style="display:flex; gap:10px;">
+        <div style="flex:1;" id="pfStockWrap">
+          <label>Stok Awal</label>
+          <input id="pfStock" type="number" min="0" placeholder="0" value="0">
+        </div>
+        <div style="flex:1;">
+          <label>Batas Stok Menipis</label>
+          <input id="pfMinStock" type="number" min="0" placeholder="0" value="0">
+        </div>
+      </div>
+      <div class="error-msg" id="pfErrorMsg" style="display:none;"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-outline" onclick="closeProductForm()">Batal</button>
+      <button class="btn" id="pfSubmitBtn" onclick="submitProductForm()">Simpan</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Adjust Stock -->
+<div class="modal-overlay" id="adjustOverlay" style="display:none;" onclick="if(event.target===this) closeAdjustModal();">
+  <div class="modal-box" style="max-width:380px;">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="adjTitle">Ubah Stok</div>
+        <div class="modal-subtitle" id="adjSubtitle"></div>
+      </div>
+      <button class="modal-close" onclick="closeAdjustModal()">&times;</button>
+    </div>
+    <div style="margin-top:12px;">
+      <label id="adjQtyLabel">Jumlah</label>
+      <input id="adjQty" type="number" min="1" placeholder="Contoh: 10">
+      <label id="adjRakLabel">Lokasi Rak (opsional)</label>
+      <select id="adjRakSelect">
+        <option value="">Tidak ditentukan</option>
+      </select>
+      <label>Catatan (opsional)</label>
+      <input id="adjNote" type="text" placeholder="Contoh: restock dari supplier">
+      <div class="error-msg" id="adjErrorMsg" style="display:none;"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-outline" onclick="closeAdjustModal()">Batal</button>
+      <button class="btn" id="adjSubmitBtn" onclick="submitAdjust()">Simpan</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Lokasi Rak Produk -->
+<div class="modal-overlay" id="rakOverlay" style="display:none;" onclick="if(event.target===this) closeRakModal();">
+  <div class="modal-box" style="max-width:420px;">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="rakModalTitle">Lokasi Rak</div>
+        <div class="modal-subtitle">Breakdown penyimpanan produk ini per rak</div>
+      </div>
+      <button class="modal-close" onclick="closeRakModal()">&times;</button>
+    </div>
+    <div style="margin-top:10px;" id="rakBreakdownList"></div>
+    <div class="card-title" style="margin-top:16px;">Pindah Stok Antar Rak</div>
+    <label>Dari</label>
+    <select id="rakMoveFrom"><option value="">Belum ditempatkan</option></select>
+    <label>Ke</label>
+    <select id="rakMoveTo"><option value="">Pilih rak tujuan</option></select>
+    <label>Jumlah</label>
+    <input id="rakMoveQty" type="number" min="1" placeholder="Jumlah yang dipindah">
+    <div class="error-msg" id="rakMoveError" style="display:none;"></div>
+    <button class="btn" style="margin-top:8px;" onclick="submitRakMove()">Pindahkan</button>
+  </div>
+</div>
+
+<!-- Modal: Kelola Rak (master daftar kode rak) -->
+<div class="modal-overlay" id="rakManageOverlay" style="display:none;" onclick="if(event.target===this) closeRakManageModal();">
+  <div class="modal-box" style="max-width:400px;">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title">Kelola Rak</div>
+        <div class="modal-subtitle">Daftar kode rak/lokasi gudang</div>
+      </div>
+      <button class="modal-close" onclick="closeRakManageModal()">&times;</button>
+    </div>
+    <div style="margin-top:10px;">
+      <label>Kode Rak Baru</label>
+      <input id="rakNewKode" type="text" placeholder="Contoh: Rak A1, T01">
+      <label>Keterangan (opsional)</label>
+      <input id="rakNewKeterangan" type="text" placeholder="Contoh: dekat pintu masuk">
+      <div class="error-msg" id="rakManageError" style="display:none;"></div>
+      <button class="btn" onclick="submitNewRak()">+ Tambah Rak</button>
+    </div>
+    <div class="card-title" style="margin-top:16px;">Daftar Rak</div>
+    <div id="rakManageList" style="max-height:240px; overflow-y:auto;"></div>
+  </div>
+</div>
+
+<!-- Modal: Riwayat Stok -->
+<div class="modal-overlay" id="logOverlay" style="display:none;" onclick="if(event.target===this) closeLogModal();">
+  <div class="modal-box" style="max-width:460px;">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="logTitle">Riwayat Stok</div>
+        <div class="modal-subtitle">50 perubahan terakhir</div>
+      </div>
+      <button class="modal-close" onclick="closeLogModal()">&times;</button>
+    </div>
+    <div style="margin-top:10px; max-height:60vh; overflow-y:auto;" id="logList">
+      <div class="empty-state">Memuat...</div>
+    </div>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script>
+const user = requireLogin(['admin', 'inventory', 'packing']);
+if (user) renderAppShell('inventory');
+
+const PERMS = (user && user.permissions) || {};
+let currentProducts = [];
+let lastGridSignature = '';
+let pollTimer = null;
+let editingProductId = null; // null = mode tambah
+let adjustState = { productId: null, mode: 'plus' };
+
+document.addEventListener('DOMContentLoaded', () => {
+  if (PERMS.manage_products) document.getElementById('btnAddProduct').style.display = '';
+  loadCategories();
+  loadRakList();
+  loadSummary();
+  loadProducts();
+  pollTimer = setInterval(() => { loadSummary(); loadProducts(true); }, 5000);
+});
+
+let searchTimer = null;
+function onSearchInput() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(loadProducts, 350);
+}
+
+async function loadSummary() {
+  try {
+    const data = await api('/inventory/summary');
+    document.getElementById('sumTotalProduk').textContent = data.total_products;
+    document.getElementById('sumTotalUnit').textContent = data.total_units.toLocaleString('id-ID');
+    document.getElementById('sumLowStock').textContent = data.low_stock_count;
+  } catch (e) { /* diam-diam, biar gak spam alert tiap polling gagal sesaat */ }
+}
+
+async function loadCategories() {
+  try {
+    const data = await api('/inventory/categories');
+    const sel = document.getElementById('invCategoryFilter');
+    const current = sel.value;
+    sel.innerHTML = '<option value="">Semua Kategori</option>' + data.categories.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+    sel.value = current;
+  } catch (e) {}
+}
+
+async function loadProducts(silent) {
+  const search = document.getElementById('invSearch').value.trim();
+  const category = document.getElementById('invCategoryFilter').value;
+  const lowStock = document.getElementById('invLowStockOnly').checked;
+  const rakId = document.getElementById('invRakFilter').value;
+
+  const params = new URLSearchParams();
+  if (search) params.set('search', search);
+  if (category) params.set('category', category);
+  if (lowStock) params.set('low_stock', '1');
+  if (rakId) params.set('rak_id', rakId);
+
+  try {
+    const data = await api('/inventory/products?' + params.toString());
+    document.getElementById('invLiveIndicator').style.color = 'var(--ok)';
+    currentProducts = data.products;
+
+    // Cuma re-render kalau datanya beneran berubah -- biar gak "kedip" tiap polling.
+    const signature = JSON.stringify(currentProducts);
+    if (signature === lastGridSignature) return;
+    lastGridSignature = signature;
+    renderGrid(currentProducts);
+  } catch (e) {
+    document.getElementById('invLiveIndicator').style.color = 'var(--danger)';
+    if (!silent) {
+      document.getElementById('invGrid').innerHTML = `<div class="empty-state">Gagal memuat produk: ${escapeHtml(e.message)}</div>`;
+    }
+  }
+}
+
+function renderGrid(products) {
+  const grid = document.getElementById('invGrid');
+  if (products.length === 0) {
+    grid.innerHTML = '<div class="empty-state">Belum ada produk. Tambahkan produk pertama kamu.</div>';
+    return;
+  }
+  grid.innerHTML = products.map((p) => {
+    const low = p.stock_qty <= p.min_stock;
+    const rakBadges = (p.rak_breakdown || []).map((b) => `<span class="badge badge-muted">${escapeHtml(b.kode)}: ${b.qty}</span>`).join(' ');
+    const unallocBadge = p.unallocated_qty > 0 ? `<span class="badge badge-warn">Belum ditempatkan: ${p.unallocated_qty}</span>` : '';
+    return `
+    <div class="inv-card">
+      <div class="inv-card-img" onclick="openLogModal(${p.id}, '${escapeAttr(p.name)}')">
+        ${p.image_url ? `<img src="${p.image_url}" alt="${escapeAttr(p.name)}" loading="lazy">` : '<span>Belum ada gambar</span>'}
+      </div>
+      <div class="inv-card-body">
+        <div class="inv-card-name">${escapeHtml(p.name)}</div>
+        <div class="inv-card-sku">${escapeHtml(p.sku)}${p.category ? ' · ' + escapeHtml(p.category) : ''}</div>
+        <div class="inv-card-stock-row">
+          <span class="inv-card-stock ${low ? 'inv-card-low' : ''}">${p.stock_qty}</span>
+          <span class="inv-card-unit">${escapeHtml(p.unit || 'pcs')}${low ? ' · <span style="color:var(--danger); font-weight:700;">Stok menipis</span>' : ''}</span>
+        </div>
+        ${(rakBadges || unallocBadge) ? `<div style="display:flex; flex-wrap:wrap; gap:5px; margin-top:2px;">${rakBadges} ${unallocBadge}</div>` : '<div class="hint">Belum ada lokasi rak</div>'}
+        ${PERMS.adjust_stock ? `
+        <div class="inv-card-actions">
+          <button class="inv-qty-btn minus" onclick="openAdjustModal(${p.id}, 'minus')">− Kurang</button>
+          <button class="inv-qty-btn plus" onclick="openAdjustModal(${p.id}, 'plus')">+ Tambah</button>
+        </div>` : ''}
+      </div>
+      ${(PERMS.adjust_stock || PERMS.manage_products) ? `
+      <div class="inv-card-footer">
+        ${PERMS.adjust_stock ? `<button class="btn-outline" onclick="openRakModal(${p.id})">🗂 Lokasi Rak</button>` : ''}
+        ${PERMS.manage_products ? `<button class="btn-outline" onclick="openProductForm(${p.id})">Edit</button>` : ''}
+        ${PERMS.manage_products ? `<button class="btn-outline" style="color:var(--danger); border-color:var(--danger-soft);" onclick="deleteProduct(${p.id}, '${escapeAttr(p.name)}')">Hapus</button>` : ''}
+      </div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+// ---------- Rak (lokasi) ----------
+let rakListCache = [];
+
+async function loadRakList() {
+  try {
+    const data = await api('/inventory/rak-lokasi');
+    rakListCache = data.rak;
+    const filterSel = document.getElementById('invRakFilter');
+    const current = filterSel.value;
+    filterSel.innerHTML = '<option value="">Semua Rak</option>' + rakListCache.map((r) => `<option value="${r.id}">${escapeHtml(r.kode)}</option>`).join('');
+    filterSel.value = current;
+  } catch (e) {}
+}
+
+function rakOptionsHtml(selectedId) {
+  return rakListCache.map((r) => `<option value="${r.id}" ${String(r.id) === String(selectedId) ? 'selected' : ''}>${escapeHtml(r.kode)}</option>`).join('');
+}
+
+// ---------- Modal Lokasi Rak per produk ----------
+let rakModalProductId = null;
+
+async function openRakModal(productId) {
+  rakModalProductId = productId;
+  document.getElementById('rakMoveError').style.display = 'none';
+  document.getElementById('rakMoveQty').value = '';
+  document.getElementById('rakBreakdownList').innerHTML = '<div class="empty-state">Memuat...</div>';
+  document.getElementById('rakOverlay').style.display = 'flex';
+
+  try {
+    const data = await api(`/inventory/products/${productId}/rak`);
+    const p = data.product;
+    document.getElementById('rakModalTitle').textContent = `Lokasi Rak · ${p.name}`;
+
+    const rows = [...p.rak_breakdown];
+    let html = '';
+    if (rows.length === 0 && p.unallocated_qty === 0) {
+      html = '<div class="empty-state">Belum ada data lokasi.</div>';
+    } else {
+      html = rows.map((r) => `<div class="stock-log-row"><div>${escapeHtml(r.kode)}</div><div style="font-weight:700;">${r.qty} ${escapeHtml(p.unit || 'pcs')}</div></div>`).join('');
+      if (p.unallocated_qty > 0) {
+        html += `<div class="stock-log-row"><div style="color:var(--warn);">Belum ditempatkan</div><div style="font-weight:700; color:var(--warn);">${p.unallocated_qty} ${escapeHtml(p.unit || 'pcs')}</div></div>`;
+      }
+    }
+    document.getElementById('rakBreakdownList').innerHTML = html;
+
+    document.getElementById('rakMoveFrom').innerHTML = '<option value="">Belum ditempatkan</option>' + rakOptionsHtml();
+    document.getElementById('rakMoveTo').innerHTML = '<option value="">Pilih rak tujuan</option>' + rakOptionsHtml();
+  } catch (e) {
+    document.getElementById('rakBreakdownList').innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function closeRakModal() {
+  document.getElementById('rakOverlay').style.display = 'none';
+}
+
+async function submitRakMove() {
+  const fromRakId = document.getElementById('rakMoveFrom').value || null;
+  const toRakId = document.getElementById('rakMoveTo').value;
+  const qty = parseInt(document.getElementById('rakMoveQty').value, 10);
+  const errBox = document.getElementById('rakMoveError');
+  errBox.style.display = 'none';
+
+  if (!toRakId) { errBox.textContent = 'Pilih rak tujuan'; errBox.style.display = 'block'; return; }
+  if (!qty || qty <= 0) { errBox.textContent = 'Masukkan jumlah yang valid'; errBox.style.display = 'block'; return; }
+
+  try {
+    await api(`/inventory/products/${rakModalProductId}/rak/move`, {
+      method: 'POST',
+      body: JSON.stringify({ from_rak_id: fromRakId, to_rak_id: toRakId, qty }),
+    });
+    lastGridSignature = '';
+    loadProducts();
+    openRakModal(rakModalProductId); // refresh breakdown di modal yang sama
+  } catch (e) {
+    errBox.textContent = e.message || 'Gagal memindahkan stok';
+    errBox.style.display = 'block';
+  }
+}
+
+// ---------- Modal Kelola Rak (master daftar) ----------
+function openRakManageModal() {
+  document.getElementById('rakManageError').style.display = 'none';
+  document.getElementById('rakNewKode').value = '';
+  document.getElementById('rakNewKeterangan').value = '';
+  renderRakManageList();
+  document.getElementById('rakManageOverlay').style.display = 'flex';
+}
+
+function closeRakManageModal() {
+  document.getElementById('rakManageOverlay').style.display = 'none';
+}
+
+function renderRakManageList() {
+  const list = document.getElementById('rakManageList');
+  if (rakListCache.length === 0) {
+    list.innerHTML = '<div class="empty-state">Belum ada rak. Tambahkan di atas.</div>';
+    return;
+  }
+  list.innerHTML = rakListCache.map((r) => `
+    <div class="stock-log-row">
+      <div>
+        <div style="font-weight:600;">${escapeHtml(r.kode)}</div>
+        ${r.keterangan ? `<div class="stock-log-meta">${escapeHtml(r.keterangan)}</div>` : ''}
+      </div>
+      ${PERMS.manage_products ? `<button class="btn-outline" style="width:auto; margin:0; padding:5px 10px; font-size:11.5px; color:var(--danger); border-color:var(--danger-soft);" onclick="deleteRak(${r.id})">Hapus</button>` : ''}
+    </div>
+  `).join('');
+}
+
+async function submitNewRak() {
+  const kode = document.getElementById('rakNewKode').value.trim();
+  const keterangan = document.getElementById('rakNewKeterangan').value.trim();
+  const errBox = document.getElementById('rakManageError');
+  errBox.style.display = 'none';
+  if (!kode) { errBox.textContent = 'Kode rak wajib diisi'; errBox.style.display = 'block'; return; }
+
+  try {
+    await api('/inventory/rak-lokasi', { method: 'POST', body: JSON.stringify({ kode, keterangan }) });
+    document.getElementById('rakNewKode').value = '';
+    document.getElementById('rakNewKeterangan').value = '';
+    await loadRakList();
+    renderRakManageList();
+  } catch (e) {
+    errBox.textContent = e.message || 'Gagal menambah rak';
+    errBox.style.display = 'block';
+  }
+}
+
+async function deleteRak(id) {
+  if (!confirm('Hapus kode rak ini?')) return;
+  try {
+    await api(`/inventory/rak-lokasi/${id}`, { method: 'DELETE' });
+    await loadRakList();
+    renderRakManageList();
+  } catch (e) {
+    alert(e.message || 'Gagal menghapus rak');
+  }
+}
+
+// ---------- Modal Tambah/Edit Produk ----------
+let pfImageBase64 = null;
+
+function openProductForm(productId) {
+  editingProductId = productId || null;
+  pfImageBase64 = null;
+  document.getElementById('pfErrorMsg').style.display = 'none';
+  document.getElementById('pfImagePicker').innerHTML = '<span id="pfImagePlaceholder">📷 Klik untuk pilih gambar produk</span>';
+
+  if (editingProductId) {
+    const p = currentProducts.find((x) => x.id === editingProductId);
+    document.getElementById('pfTitle').textContent = 'Edit Produk';
+    document.getElementById('pfSku').value = p.sku;
+    document.getElementById('pfName').value = p.name;
+    document.getElementById('pfCategory').value = p.category || '';
+    document.getElementById('pfUnit').value = p.unit || 'pcs';
+    document.getElementById('pfMinStock').value = p.min_stock;
+    document.getElementById('pfStockWrap').style.display = 'none'; // stok diubah lewat tombol +/-, bukan form edit
+    if (p.image_url) {
+      document.getElementById('pfImagePicker').innerHTML = `<img src="${p.image_url}" alt="">`;
+    }
+  } else {
+    document.getElementById('pfTitle').textContent = 'Tambah Produk';
+    document.getElementById('pfSku').value = '';
+    document.getElementById('pfName').value = '';
+    document.getElementById('pfCategory').value = '';
+    document.getElementById('pfUnit').value = 'pcs';
+    document.getElementById('pfStock').value = '0';
+    document.getElementById('pfMinStock').value = '0';
+    document.getElementById('pfStockWrap').style.display = '';
+  }
+  document.getElementById('productFormOverlay').style.display = 'flex';
+}
+
+function closeProductForm() {
+  document.getElementById('productFormOverlay').style.display = 'none';
+}
+
+function onProductImageChosen(evt) {
+  const file = evt.target.files[0];
+  if (!file) return;
+  if (file.size > 4 * 1024 * 1024) { alert('Ukuran gambar maksimal 4MB'); return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    pfImageBase64 = reader.result;
+    document.getElementById('pfImagePicker').innerHTML = `<img src="${pfImageBase64}" alt="">`;
+  };
+  reader.readAsDataURL(file);
+}
+
+async function submitProductForm() {
+  const sku = document.getElementById('pfSku').value.trim();
+  const name = document.getElementById('pfName').value.trim();
+  const category = document.getElementById('pfCategory').value.trim();
+  const unit = document.getElementById('pfUnit').value.trim() || 'pcs';
+  const min_stock = document.getElementById('pfMinStock').value;
+  const errBox = document.getElementById('pfErrorMsg');
+  errBox.style.display = 'none';
+
+  if (!sku || !name) {
+    errBox.textContent = 'SKU dan Nama produk wajib diisi';
+    errBox.style.display = 'block';
+    return;
+  }
+
+  const btn = document.getElementById('pfSubmitBtn');
+  btn.disabled = true;
+  btn.textContent = 'Menyimpan...';
+  try {
+    if (editingProductId) {
+      const body = { sku, name, category: category || null, unit, min_stock };
+      if (pfImageBase64) body.image_base64 = pfImageBase64;
+      await api(`/inventory/products/${editingProductId}`, { method: 'PATCH', body: JSON.stringify(body) });
+    } else {
+      const stock_qty = document.getElementById('pfStock').value;
+      const body = { sku, name, category: category || null, unit, min_stock, stock_qty };
+      if (pfImageBase64) body.image_base64 = pfImageBase64;
+      await api('/inventory/products', { method: 'POST', body: JSON.stringify(body) });
+      loadCategories();
+    }
+    lastGridSignature = ''; // paksa render ulang walau signature kebetulan sama
+    closeProductForm();
+    loadProducts();
+    loadSummary();
+  } catch (e) {
+    errBox.textContent = e.message || 'Gagal menyimpan produk';
+    errBox.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Simpan';
+  }
+}
+
+async function deleteProduct(id, name) {
+  if (!confirm(`Hapus produk "${name}"? Produk akan diarsipkan (riwayat stok tetap aman).`)) return;
+  try {
+    await api(`/inventory/products/${id}`, { method: 'DELETE' });
+    lastGridSignature = '';
+    loadProducts();
+    loadSummary();
+  } catch (e) {
+    alert(e.message || 'Gagal menghapus produk');
+  }
+}
+
+// ---------- Modal Adjust Stok ----------
+function openAdjustModal(productId, mode) {
+  const p = currentProducts.find((x) => x.id === productId);
+  adjustState = { productId, mode };
+  document.getElementById('adjTitle').textContent = mode === 'plus' ? 'Tambah Stok' : 'Kurangi Stok';
+  document.getElementById('adjSubtitle').textContent = `${p.name} · Stok saat ini: ${p.stock_qty} ${p.unit || 'pcs'}`;
+  document.getElementById('adjQtyLabel').textContent = mode === 'plus' ? 'Jumlah ditambah' : 'Jumlah dikurangi';
+  document.getElementById('adjRakLabel').textContent = mode === 'plus' ? 'Masuk ke rak (opsional)' : 'Ambil dari rak (opsional)';
+  document.getElementById('adjRakSelect').innerHTML = '<option value="">Tidak ditentukan</option>' + rakOptionsHtml();
+  document.getElementById('adjQty').value = '';
+  document.getElementById('adjNote').value = '';
+  document.getElementById('adjErrorMsg').style.display = 'none';
+  document.getElementById('adjustOverlay').style.display = 'flex';
+  setTimeout(() => document.getElementById('adjQty').focus(), 50);
+}
+
+function closeAdjustModal() {
+  document.getElementById('adjustOverlay').style.display = 'none';
+}
+
+async function submitAdjust() {
+  const qty = parseInt(document.getElementById('adjQty').value, 10);
+  const note = document.getElementById('adjNote').value.trim();
+  const errBox = document.getElementById('adjErrorMsg');
+  errBox.style.display = 'none';
+
+  if (!qty || qty <= 0) {
+    errBox.textContent = 'Masukkan jumlah yang valid (lebih dari 0)';
+    errBox.style.display = 'block';
+    return;
+  }
+
+  const change_qty = adjustState.mode === 'plus' ? qty : -qty;
+  const rak_id = document.getElementById('adjRakSelect').value || null;
+  const btn = document.getElementById('adjSubmitBtn');
+  btn.disabled = true;
+  btn.textContent = 'Menyimpan...';
+  try {
+    await api(`/inventory/products/${adjustState.productId}/adjust`, {
+      method: 'POST',
+      body: JSON.stringify({ change_qty, note, rak_id }),
+    });
+    lastGridSignature = '';
+    closeAdjustModal();
+    loadProducts();
+    loadSummary();
+  } catch (e) {
+    errBox.textContent = e.message || 'Gagal update stok';
+    errBox.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Simpan';
+  }
+}
+
+// ---------- Modal Riwayat Stok ----------
+async function openLogModal(productId, name) {
+  document.getElementById('logTitle').textContent = `Riwayat Stok · ${name}`;
+  document.getElementById('logList').innerHTML = '<div class="empty-state">Memuat...</div>';
+  document.getElementById('logOverlay').style.display = 'flex';
+  try {
+    const data = await api(`/inventory/products/${productId}/logs`);
+    if (data.logs.length === 0) {
+      document.getElementById('logList').innerHTML = '<div class="empty-state">Belum ada riwayat perubahan stok.</div>';
+      return;
+    }
+    document.getElementById('logList').innerHTML = data.logs.map((l) => {
+      const pos = l.change_qty > 0;
+      const sourceLabel = l.source === 'auto_packing' ? 'Otomatis (Packing)' : (l.source === 'manual' ? 'Manual' : 'Penyesuaian');
+      return `
+      <div class="stock-log-row">
+        <div>
+          <div>${sourceLabel}${l.note ? ' — ' + escapeHtml(l.note) : ''}</div>
+          <div class="stock-log-meta">${new Date(l.created_at).toLocaleString('id-ID')} · ${escapeHtml(l.user_name)}</div>
+        </div>
+        <div class="stock-log-change ${pos ? 'pos' : 'neg'}">${pos ? '+' : ''}${l.change_qty} <span style="color:var(--muted); font-weight:400;">(→ ${l.resulting_stock})</span></div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    document.getElementById('logList').innerHTML = `<div class="empty-state">Gagal memuat riwayat: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function closeLogModal() {
+  document.getElementById('logOverlay').style.display = 'none';
+}
+
+// ---------- Util ----------
+function escapeHtml(str) {
+  return String(str ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function escapeAttr(str) {
+  return String(str ?? '').replace(/'/g, "\\'");
+}
+</script>
+</body>
+</html>

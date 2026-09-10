@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>Flowmua</title></head>
+<body>
+<script src="js/api.js"></script>
+<script>
+const user = getUser();
+if (getToken() && user) {
+  if (user.role === 'admin' || user.role === 'cs') window.location.href = '/dashboard.html';
+  else if (user.role === 'packing') window.location.href = '/packing.html';
+  else window.location.href = '/login.html';
+} else {
+  window.location.href = '/login.html';
+}
+</script>
+</body>
+</html>
