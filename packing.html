@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scan Packing - Flowmua</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+</head>
+<body>
+<div id="appShell"></div>
+
+<div class="container">
+  <h1 class="page-title">Scan Packing</h1>
+  <p class="page-subtitle">Arahkan kamera ke barcode resi. Sistem otomatis mendeteksi dan langsung menandai — gak perlu tekan tombol apa pun.</p>
+
+  <div class="card">
+    <div id="reader"></div>
+    <div class="scan-status" id="scanStatus"><span class="dot"></span> Siap scan...</div>
+    <div style="text-align: center; margin-top: 12px;">
+      <button class="btn-ghost" onclick="toggleManual()">Input manual (kalau barcode susah discan)</button>
+    </div>
+    <div id="manualInput" style="display:none; margin-top: 10px;">
+      <div class="field-row">
+        <input id="manualValue" type="text" placeholder="Ketik No. Resi / No. Pesanan">
+        <button class="btn" style="width:auto; padding:11px 18px;" onclick="submitScan(document.getElementById('manualValue').value)">Cek</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="resultArea"></div>
+
+  <div class="card">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
+      <div class="card-title" style="margin-bottom:0;">Riwayat scan hari ini</div>
+      <span id="todayCount" class="badge badge-ok">0</span>
+    </div>
+    <div id="historyList"><div class="empty-state">Belum ada scan hari ini</div></div>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script>
+const user = requireLogin(['packing', 'admin']);
+if (user) renderAppShell('packing');
+
+let scanning = true;
+let html5QrCode;
+
+function toggleManual() {
+  const el = document.getElementById('manualInput');
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+  if (el.style.display === 'block') document.getElementById('manualValue').focus();
+}
+
+function setScanStatus(text) {
+  const el = document.getElementById('scanStatus');
+  el.innerHTML = `<span class="dot"></span> ${text}`;
+}
+
+// ---------- Suara notifikasi scan ----------
+// Berhasil -> jokowi-saya-akan-lawan.mp3 | Gagal (duplikat / gak ketemu / error) -> 0-salah-e-salah.mp3
+// Sengaja pakai <audio> (bukan Web Audio API) karena <audio> jalan di jalur "media":
+//  - iOS: tetap bunyi walau switch silent aktif (Web Audio API justru ikut ke-mute)
+//  - Android: mode silent/getar cuma matiin ringtone & notifikasi, suara media tetap jalan
+// Volume elemen dikunci 1.0 (maksimal) dan sengaja TIDAK ada tombol mute di halaman ini.
+// Catatan: browser gak bisa ngatur volume media sistem HP -- kalau volume media HP di-nol-kan
+// pakai tombol volume, suara tetap gak akan keluar.
+const SOUNDS = {
+  ok: new Audio('/sounds/jokowi-saya-akan-lawan.mp3'),
+  fail: new Audio('/sounds/0-salah-e-salah.mp3'),
+};
+Object.values(SOUNDS).forEach((a) => { a.preload = 'auto'; a.volume = 1.0; });
+
+let audioUnlocked = false;
+// Browser mewajibkan ada sentuhan user dulu sebelum audio boleh diputar otomatis.
+function unlockAudio() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+  Object.values(SOUNDS).forEach((a) => {
+    a.muted = true;
+    const p = a.play();
+    const reset = () => { a.pause(); a.currentTime = 0; a.muted = false; };
+    if (p && p.then) p.then(reset).catch(() => { a.muted = false; audioUnlocked = false; });
+    else reset();
+  });
+}
+['pointerdown', 'touchend', 'click', 'keydown'].forEach((evt) =>
+  document.addEventListener(evt, unlockAudio, { once: false, passive: true })
+);
+
+function beepFallback(success) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = success ? 880 : 220;
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    osc.start();
+    osc.stop(ctx.currentTime + (success ? 0.12 : 0.18));
+  } catch (e) { /* gapapa dilewat */ }
+}
+
+function feedback(success) {
+  if (navigator.vibrate) navigator.vibrate(success ? 90 : [70, 60, 70]);
+  const snd = success ? SOUNDS.ok : SOUNDS.fail;
+  const other = success ? SOUNDS.fail : SOUNDS.ok;
+  other.pause(); other.currentTime = 0;
+  snd.muted = false;
+  snd.volume = 1.0;
+  snd.currentTime = 0;
+  const p = snd.play();
+  if (p && p.catch) p.catch(() => beepFallback(success));
+}
+
+async function onScanSuccess(decodedText) {
+  if (!scanning) return;
+  scanning = false;
+  await submitScan(decodedText);
+}
+
+async function submitScan(value) {
+  value = (value || '').trim();
+  if (!value) { scanning = true; return; }
+  setScanStatus('Memproses...');
+  try {
+    const data = await api('/packing/scan', { method: 'POST', body: JSON.stringify({ value }) });
+    feedback(true);
+    renderResult('ok', data.message, data.order);
+  } catch (e) {
+    feedback(false);
+    renderResult(e.status || 'danger', e.message, e.data?.order);
+  }
+  const manualEl = document.getElementById('manualValue');
+  if (manualEl) manualEl.value = '';
+  loadHistory();
+  // Jeda singkat biar gak double-scan barcode yang sama, lalu langsung siap lagi otomatis
+  const cooldown = 900;
+  setTimeout(() => {
+    scanning = true;
+    setScanStatus('Siap scan berikutnya...');
+  }, cooldown);
+}
+
+function escHtml(t) {
+  return String(t == null ? '' : t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function renderResult(status, message, order) {
+  const area = document.getElementById('resultArea');
+  let cls = 'result-ok', icon = '✅';
+  if (status !== 'ok') { cls = 'result-danger'; icon = '⚠️'; }
+  // Paket telat (umur pesanan lewat batas kirim): kotak hasil jadi kuning-merah + peringatan jelas
+  // supaya packer tahu paket ini harus ikut dikirim hari ini.
+  const late = status === 'ok' && order && order.late && order.late.is_late ? order.late : null;
+  if (late) { cls = 'result-warn'; icon = late.level === 'critical' ? '🔥' : '🚨'; }
+  area.innerHTML = `
+    <div class="result-box ${cls}">
+      <div class="icon">${icon}</div>
+      <div class="msg">${escHtml(message)}</div>
+      ${late ? `<div style="margin:6px 0 4px;"><span class="badge badge-late${late.level === 'critical' ? ' badge-critical' : ''}">${late.level === 'critical' ? 'KRITIS' : 'TELAT'} ${escHtml(late.age_label)}</span></div>` : ''}
+      ${order ? `<div class="sub">No. Pesanan: ${escHtml(order.no_pesanan)}<br>No. Resi: ${escHtml(order.no_resi || '-')}</div>` : ''}
+    </div>
+  `;
+}
+
+async function loadHistory() {
+  try {
+    const data = await api('/packing/my-scans-today');
+    document.getElementById('todayCount').textContent = data.scans.filter((s) => s.result === 'ok').length;
+    const list = document.getElementById('historyList');
+    if (data.scans.length === 0) {
+      list.innerHTML = '<div class="empty-state">Belum ada scan hari ini</div>';
+      return;
+    }
+    list.innerHTML = data.scans.slice(0, 15).map((s) => {
+      const badge = s.result === 'ok' ? 'badge-ok' : 'badge-warn';
+      const label = s.result === 'ok' ? 'Berhasil' : 'Duplikat';
+      const time = new Date(s.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+      return `<div class="history-item">
+        <div class="row">
+          <span>${s.no_pesanan || s.scanned_value}</span>
+          <span class="badge ${badge}">${label}</span>
+        </div>
+        <div class="time">${time}</div>
+      </div>`;
+    }).join('');
+  } catch (e) { /* diamkan */ }
+}
+
+function startScanner() {
+  // PENTING: barcode di label ekspedisi (No. Resi/No. Pesanan) itu barcode LINEAR/1D
+  // (CODE_128 kebanyakan, kadang CODE_39/ITF/EAN tergantung kurir/percetakan) -- BEDA
+  // sama QR code yang kotak. Tanpa `formatsToSupport` eksplisit + tanpa native barcode
+  // detector, library ini sering gagal/lambat baca barcode 1D meski QR code jalan mulus,
+  // makanya sebelumnya kerasa "gak kebaca" pas discan padahal input manual (yang cuma
+  // baca teks No. Pesanan-nya langsung) tetap jalan normal.
+  html5QrCode = new Html5Qrcode("reader", {
+    formatsToSupport: [
+      Html5QrcodeSupportedFormats.QR_CODE,
+      Html5QrcodeSupportedFormats.CODE_128,
+      Html5QrcodeSupportedFormats.CODE_39,
+      Html5QrcodeSupportedFormats.CODE_93,
+      Html5QrcodeSupportedFormats.CODABAR,
+      Html5QrcodeSupportedFormats.ITF,
+      Html5QrcodeSupportedFormats.EAN_13,
+      Html5QrcodeSupportedFormats.EAN_8,
+      Html5QrcodeSupportedFormats.UPC_A,
+      Html5QrcodeSupportedFormats.UPC_E,
+    ],
+    verbose: false,
+    // Kalau browser-nya support (Chrome Android umumnya support), pakai native
+    // BarcodeDetector API -- jauh lebih akurat & cepat buat barcode 1D dibanding
+    // decoder JS (ZXing) bawaan library ini. Kalau gak support, otomatis fallback ke
+    // decoder biasa, jadi aman di-set true terus.
+    experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+  });
+  // Kotak scan diperbesar & dilebarin (gak kotak sama sisi) -- barcode 1D biasanya
+  // memanjang horizontal, jadi kalau kotaknya kekecilan/terlalu persegi, sebagian
+  // garis barcode kepotong di luar area scan dan gagal ke-decode.
+  const config = { fps: 15, qrbox: { width: 300, height: 140 }, aspectRatio: 1.7777778 };
+  Html5Qrcode.getCameras().then((cameras) => {
+    if (!cameras || cameras.length === 0) {
+      document.getElementById('reader').innerHTML = '<div class="empty-state">Kamera tidak ditemukan. Gunakan input manual di bawah.</div>';
+      toggleManual();
+      return;
+    }
+    const backCam = cameras.find((c) => /back|rear|environment/i.test(c.label)) || cameras[cameras.length - 1];
+    html5QrCode.start(backCam.id, config, onScanSuccess).catch(() => {
+      document.getElementById('reader').innerHTML = '<div class="empty-state">Gagal membuka kamera. Cek izin kamera di browser, atau gunakan input manual.</div>';
+      toggleManual();
+    });
+  }).catch(() => {
+    document.getElementById('reader').innerHTML = '<div class="empty-state">Tidak bisa mengakses kamera. Gunakan input manual di bawah.</div>';
+    toggleManual();
+  });
+}
+
+document.getElementById('manualValue')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') submitScan(e.target.value);
+});
+
+if (user) {
+  startScanner();
+  loadHistory();
+}
+</script>
+</body>
+</html>

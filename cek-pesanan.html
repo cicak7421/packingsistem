@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cek &amp; Validasi - Flowmua</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="appShell"></div>
+
+<div class="container-wide">
+  <h1 class="page-title">Cek &amp; Validasi Pesanan</h1>
+  <p class="page-subtitle">Scan atau ketik No. Resi / No. Pesanan untuk memeriksa kelengkapan data, SKU &amp; stok, lalu tandai pesanan sebagai tervalidasi. Paket yang sudah lewat batas waktu kirim ditandai merah.</p>
+
+  <div class="card">
+    <div class="cv-lookup">
+      <input id="cvInput" type="text" placeholder="Scan / ketik No. Resi atau No. Pesanan, lalu Enter" autocomplete="off" autofocus>
+      <button class="btn" onclick="cvLookup()">Cek</button>
+    </div>
+    <div class="hint" style="margin-top:8px;">Scanner barcode USB langsung bisa dipakai di kolom ini (otomatis Enter).</div>
+  </div>
+
+  <div id="cvResult"></div>
+
+  <div class="stat-row stat-row-4" id="lateStats">
+    <div class="stat-card has-icon stat-danger stat-card-click" id="lateStatCritical" onclick="setLateLevel('critical')">
+      <span class="stat-icon">🔥</span>
+      <div class="stat-value" id="cntCritical">-</div>
+      <div class="stat-label">Kritis <span class="hint" id="hintCritical"></span></div>
+    </div>
+    <div class="stat-card has-icon stat-danger stat-card-click active" id="lateStatAll" onclick="setLateLevel('all')">
+      <span class="stat-icon">🚨</span>
+      <div class="stat-value" id="cntLate">-</div>
+      <div class="stat-label">Telat Kirim <span class="hint" id="hintLate"></span></div>
+    </div>
+    <div class="stat-card has-icon stat-warn stat-card-click" id="lateStatSoon" onclick="setLateLevel('soon')">
+      <span class="stat-icon">⏳</span>
+      <div class="stat-value" id="cntSoon">-</div>
+      <div class="stat-label">Hampir Telat <span class="hint" id="hintSoon"></span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" id="lateTitle">Paket telat kirim <span class="hint">(paling lama di atas — klik baris untuk dicek &amp; divalidasi)</span></div>
+    <div class="cv-filter-row">
+      <select id="latePackingFilter" onchange="loadLate(1)" style="width:auto; margin-bottom:0;">
+        <option value="">Semua status packing</option>
+        <option value="belum_packing">Belum packing</option>
+        <option value="sudah_packing">Sudah packing, belum dikirim</option>
+      </select>
+      <span class="hint" id="lateUpdated"></span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Umur</th><th>No. Pesanan</th><th>No. Resi</th><th>Toko / Platform</th><th>Kurir</th>
+          <th>Penerima</th><th>SKU</th><th>Packing</th><th>Validasi</th>
+        </tr></thead>
+        <tbody id="lateTable"><tr><td colspan="9" class="empty-state">Memuat...</td></tr></tbody>
+      </table>
+    </div>
+    <div class="pagination-bar">
+      <span class="hint" id="latePageInfo"></span>
+      <div class="pagination-controls">
+        <button class="btn-outline" id="latePrev" onclick="loadLate(latePage-1)">&larr; Sebelumnya</button>
+        <button class="btn-outline" id="lateNext" onclick="loadLate(latePage+1)">Selanjutnya &rarr;</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script>
+const user = requireLogin(['admin', 'cs', 'inventory']);
+if (user) renderAppShell('cek-pesanan');
+
+const LATE_PAGE_LIMIT = 30;
+let latePage = 1;
+let lateLevel = 'all';
+let lateRows = {};
+let cvOrders = {};
+
+const esc = (t) => String(t == null ? '' : t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmtDT = (v) => (v ? new Date(v).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) : '-');
+const isAdmin = !!(user && user.role === 'admin');
+const canUnvalidate = !!(user && (user.role === 'admin' || user.role === 'cs'));
+
+// ---------- Cek satu pesanan ----------
+document.getElementById('cvInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); cvLookup(); }
+});
+
+async function cvLookup(value) {
+  const input = document.getElementById('cvInput');
+  if (typeof value === 'string') input.value = value;
+  const q = input.value.trim();
+  const out = document.getElementById('cvResult');
+  if (!q) return;
+  out.innerHTML = '<div class="card"><div class="empty-state">Memeriksa...</div></div>';
+  try {
+    const data = await api('/cek-pesanan/lookup?q=' + encodeURIComponent(q));
+    if (!data.orders.length) {
+      out.innerHTML = '<div class="result-box result-danger"><div class="icon">⚠️</div><div class="msg">Pesanan tidak ditemukan</div><div class="sub">Cek lagi nomornya, atau mungkin belum diimport ke sistem.</div></div>';
+      return;
+    }
+    cvOrders = Object.fromEntries(data.orders.map((o) => [o.id, o]));
+    const note = !data.exact ? `<div class="hint" style="margin-bottom:10px;">Tidak ada yang cocok persis, menampilkan ${data.orders.length} pesanan yang mengandung "${esc(q)}".</div>` : '';
+    out.innerHTML = note + data.orders.map(orderCardHtml).join('');
+    input.select();
+  } catch (e) {
+    out.innerHTML = `<div class="result-box result-danger"><div class="icon">⚠️</div><div class="msg">${esc(e.message)}</div></div>`;
+  }
+}
+
+function checkIcon(level) { return level === 'ok' ? '✔' : level === 'warn' ? '⚠' : '✖'; }
+
+function orderCardHtml(o) {
+  const lateCls = o.late && o.late.level === 'critical' ? 'cv-critical' : o.late && o.late.is_late ? 'cv-late' : '';
+  const validCls = o.validated_at ? 'cv-valid' : '';
+  const packBadge = o.status_packing === 'sudah_packing'
+    ? '<span class="badge badge-ok">Sudah Packing</span>' : '<span class="badge badge-warn">Belum Packing</span>';
+  const resiMap = { belum_dikirim: ['badge-muted', 'Belum Dikirim'], dikirim: ['badge-ok', 'Dikirim'], diterima: ['badge-ok', 'Diterima'] };
+  const [rc, rl] = resiMap[o.status_resi] || ['badge-muted', o.status_resi || '-'];
+
+  const items = o.items.length ? `
+    <table class="cv-items">
+      <thead><tr><th>SKU</th><th>Produk (Inventory)</th><th>Jumlah</th><th>Stok sekarang</th></tr></thead>
+      <tbody>${o.items.map((i) => `
+        <tr>
+          <td><b>${esc(i.sku)}</b></td>
+          <td>${i.registered ? esc(i.name) : '<span class="bad">Belum terdaftar</span>'}</td>
+          <td>&times;${i.qty}</td>
+          <td>${i.registered ? `<span class="${i.stock_enough || o.status_packing === 'sudah_packing' ? 'good' : 'bad'}">${i.stock_qty}</span>` : '-'}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>` : '<div class="hint" style="margin-bottom:14px;">Pesanan ini tidak punya SKU.</div>';
+
+  const validated = o.validated_at ? `
+    <div class="cv-valid-box">✔ Sudah divalidasi oleh <b>${esc(o.validated_by_name || 'N/A')}</b> · ${fmtDT(o.validated_at)}${o.validation_note ? `<br><span style="font-weight:500;">Catatan: ${esc(o.validation_note)}</span>` : ''}</div>
+    ${canUnvalidate ? `<button class="btn-outline" onclick="cvUnvalidate(${o.id})">Batalkan validasi</button>` : ''}` : '';
+
+  const errors = o.checks.some((c) => c.level === 'error');
+  const validateForm = `
+    <input id="cvNote-${o.id}" type="text" maxlength="300" placeholder="Catatan (opsional), misal: box sudah dicek 2x">
+    <button class="btn" onclick="cvValidate(${o.id}, false)" ${errors ? 'disabled title="Bereskan masalah merah dulu"' : ''}>${o.validated_at ? 'Validasi Ulang' : '✔ Validasi Pesanan'}</button>
+    ${errors && isAdmin ? `<button class="btn-outline" style="color:var(--danger); border-color:var(--danger);" onclick="cvValidate(${o.id}, true)">Paksa Validasi (admin)</button>` : ''}`;
+
+  return `
+  <div class="card cv-order ${lateCls} ${validCls}" id="cv-card-${o.id}">
+    ${o.late && o.late.is_late ? `<div class="late-banner static">${o.late.level === 'critical' ? '🔥 PAKET KRITIS' : '🚨 PAKET TELAT KIRIM'} — umur pesanan ${o.late.age_label}. Utamakan kirim hari ini!</div>` : ''}
+    <div class="cv-head">
+      <div>
+        <div class="cv-no">${esc(o.no_pesanan)}</div>
+        <div class="hint">Resi: ${esc(o.no_resi || '-')}${o.opsi_pengiriman ? ` · ${esc(o.opsi_pengiriman)}` : ''}</div>
+      </div>
+      <div class="cv-badges">
+        ${lateBadge(o.late)}
+        ${packBadge}
+        <span class="badge ${rc}">${rl}</span>
+        ${o.validated_at ? '<span class="badge badge-ok">Tervalidasi</span>' : '<span class="badge badge-muted">Belum divalidasi</span>'}
+      </div>
+    </div>
+    <div class="cv-grid">
+      <div><span class="lbl">Toko / Platform</span>${esc([o.toko, o.platform].filter(Boolean).join(' · ') || '-')}</div>
+      <div><span class="lbl">Penerima</span>${esc(o.nama_penerima || '-')}${o.kota ? ` (${esc(o.kota)})` : ''}</div>
+      <div><span class="lbl">Pesanan dibuat</span>${esc(o.waktu_pesanan_dibuat || '-')}</div>
+      <div><span class="lbl">Di-packing oleh</span>${o.status_packing === 'sudah_packing' ? esc(o.packed_by_name || 'N/A') : '-'}</div>
+    </div>
+    <ul class="cv-checks">
+      ${o.checks.map((c) => `<li class="cv-check ${c.level}"><span class="ico">${checkIcon(c.level)}</span><span>${esc(c.text)}</span></li>`).join('')}
+    </ul>
+    ${items}
+    <div class="cv-validate">${o.validated_at ? validated : validateForm}</div>
+    ${o.validated_at ? `<div class="cv-validate" style="border-top:none; padding-top:10px;">${validateForm}</div>` : ''}
+  </div>`;
+}
+
+async function cvValidate(id, force) {
+  const note = (document.getElementById('cvNote-' + id) || {}).value || '';
+  if (force && !confirm('Pesanan ini masih punya masalah (merah). Yakin paksa validasi?')) return;
+  try {
+    const data = await api(`/cek-pesanan/${id}/validate`, { method: 'POST', body: JSON.stringify({ note, force }) });
+    replaceCard(data.order);
+    loadLate(latePage);
+  } catch (e) {
+    if (e.status === 409 && e.data && e.data.order) replaceCard(e.data.order);
+    alert(e.message);
+  }
+}
+
+async function cvUnvalidate(id) {
+  if (!confirm('Batalkan validasi pesanan ini?')) return;
+  try {
+    const data = await api(`/cek-pesanan/${id}/validate`, { method: 'DELETE' });
+    replaceCard(data.order);
+    loadLate(latePage);
+  } catch (e) { alert(e.message); }
+}
+
+function replaceCard(order) {
+  cvOrders[order.id] = order;
+  const el = document.getElementById('cv-card-' + order.id);
+  if (el) el.outerHTML = orderCardHtml(order);
+}
+
+// ---------- Daftar paket telat ----------
+function setLateLevel(level) {
+  lateLevel = level;
+  document.getElementById('lateStatCritical').classList.toggle('active', level === 'critical');
+  document.getElementById('lateStatAll').classList.toggle('active', level === 'all');
+  document.getElementById('lateStatSoon').classList.toggle('active', level === 'soon');
+  loadLate(1);
+}
+
+async function loadCounts() {
+  try {
+    const d = await api('/cek-pesanan/late-count');
+    document.getElementById('cntCritical').textContent = d.critical_count;
+    document.getElementById('cntLate').textContent = d.late_count;
+    document.getElementById('cntSoon').textContent = d.soon_count;
+    const t = d.thresholds || {};
+    document.getElementById('hintCritical').textContent = t.critical_hours ? `(>${t.critical_hours} jam)` : '';
+    document.getElementById('hintLate').textContent = t.late_hours ? `(>${t.late_hours} jam)` : '';
+    document.getElementById('hintSoon').textContent = t.soon_hours ? `(${t.soon_hours}-${t.late_hours} jam)` : '';
+  } catch (e) { /* diamkan */ }
+}
+
+async function loadLate(page) {
+  latePage = Math.max(1, page || 1);
+  const tbody = document.getElementById('lateTable');
+  const title = { all: 'Paket telat kirim', critical: 'Paket kritis', soon: 'Paket hampir telat' }[lateLevel];
+  document.getElementById('lateTitle').innerHTML = `${title} <span class="hint">(paling lama di atas — klik baris untuk dicek &amp; divalidasi)</span>`;
+  try {
+    const params = new URLSearchParams({ level: lateLevel, page: latePage, limit: LATE_PAGE_LIMIT });
+    const pf = document.getElementById('latePackingFilter').value;
+    if (pf) params.set('status_packing', pf);
+    const [data] = await Promise.all([api('/cek-pesanan/late?' + params.toString()), loadCounts()]);
+    lateRows = Object.fromEntries(data.orders.map((o) => [o.id, o]));
+    tbody.innerHTML = data.orders.map((o) => `
+      <tr class="order-row ${lateRowClass(o)}" data-q="${esc(o.no_resi || o.no_pesanan)}" onclick="cvLookup(this.dataset.q); window.scrollTo({ top: 0, behavior: 'smooth' });">
+        <td>${lateBadge(o.late)}</td>
+        <td>${esc(o.no_pesanan)}</td>
+        <td>${esc(o.no_resi || '-')}</td>
+        <td>${esc([o.toko, o.platform].filter(Boolean).join(' · ') || '-')}</td>
+        <td>${esc(o.opsi_pengiriman || '-')}</td>
+        <td>${esc(o.nama_penerima || '-')}</td>
+        <td>${formatSkuChips(o.sku)}</td>
+        <td>${o.status_packing === 'sudah_packing' ? '<span class="badge badge-ok">Sudah</span>' : '<span class="badge badge-warn">Belum</span>'}</td>
+        <td>${o.validated_at ? '<span class="badge badge-ok">Valid</span>' : '<span class="badge badge-muted">-</span>'}</td>
+      </tr>`).join('') || `<tr><td colspan="9" class="empty-state">${lateLevel === 'soon' ? 'Tidak ada paket yang hampir telat.' : 'Tidak ada paket telat 🎉'}</td></tr>`;
+
+    const totalPages = Math.max(1, Math.ceil((data.total || 0) / LATE_PAGE_LIMIT));
+    document.getElementById('latePageInfo').textContent = data.total ? `Halaman ${latePage} dari ${totalPages} (${data.total} paket)` : '';
+    document.getElementById('latePrev').disabled = latePage <= 1;
+    document.getElementById('lateNext').disabled = latePage >= totalPages;
+    document.getElementById('lateUpdated').textContent = 'Diperbarui ' + new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="9" class="empty-state">${esc(e.message)}</td></tr>`;
+  }
+}
+
+// Helper SKU chip (sama seperti di dashboard)
+function formatSkuChips(skuRaw) {
+  const str = String(skuRaw || '').trim();
+  if (!str) return '-';
+  const chips = str.split(',').map((p) => p.trim()).filter(Boolean).map((p) => {
+    const m = p.match(/^(.*?)\s+x(\d+)$/i);
+    return m ? `<span class="sku-chip">${esc(m[1])} <span class="sku-chip-qty">&times;${m[2]}</span></span>` : `<span class="sku-chip">${esc(p)}</span>`;
+  });
+  return `<div class="sku-chip-list">${chips.join('')}</div>`;
+}
+
+if (user) {
+  const params = new URLSearchParams(location.search);
+  const lv = params.get('level');
+  if (['all', 'critical', 'soon'].includes(lv)) lateLevel = lv;
+  setLateLevel(lateLevel);
+  const q = params.get('q');
+  if (q) cvLookup(q);
+  setInterval(() => loadLate(latePage), 60000);
+}
+</script>
+</body>
+</html>
