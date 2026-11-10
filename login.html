@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Login - Flowmua</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="auth-wrap">
+  <aside class="auth-aside">
+    <div class="brand"><span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5"/><path d="M12 13v8"/><path d="m7.5 5.5 9 5"/></svg></span> Flowmua</div>
+    <div>
+      <h2>Dari import sampai paket terkirim.</h2>
+      <p>Satu tempat buat CS dan tim packing: import pesanan marketplace, scan resi, cek status, dan pantau stok.</p>
+    </div>
+    <div class="auth-flow"><span>Import</span><i></i><span>Packing</span><i></i><span>Dikirim</span></div>
+  </aside>
+  <main class="auth-main">
+    <div class="auth-box">
+      <div class="brand" style="display:flex;"><span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5"/><path d="M12 13v8"/><path d="m7.5 5.5 9 5"/></svg></span> Flowmua</div>
+      <h1>Masuk</h1>
+      <p class="auth-sub">Pakai akun yang dibuat admin.</p>
+      <label for="username">Username</label>
+      <input id="username" type="text" placeholder="Username kamu" autocomplete="username" autofocus>
+      <label for="password">Password</label>
+      <input id="password" type="password" placeholder="Password kamu" autocomplete="current-password">
+      <div class="error-msg" id="errorMsg" style="display:none;" role="alert"></div>
+      <button class="btn" id="loginBtn" onclick="doLogin()" style="margin-top:6px;">Masuk</button>
+    </div>
+  </main>
+</div>
+
+<script src="js/api.js"></script>
+<script>
+// Kalau sudah login, langsung redirect sesuai role
+(function() {
+  const user = getUser();
+  if (getToken() && user) redirectByRole(user.role);
+})();
+
+function redirectByRole(role) {
+  if (role === 'admin' || role === 'cs') window.location.href = '/dashboard.html';
+  else if (role === 'packing') window.location.href = '/packing.html';
+  else if (role === 'inventory') window.location.href = '/inventory.html';
+}
+
+async function doLogin() {
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  const errBox = document.getElementById('errorMsg');
+  const btn = document.getElementById('loginBtn');
+  errBox.style.display = 'none';
+
+  if (!username || !password) {
+    errBox.textContent = 'Username dan password wajib diisi';
+    errBox.style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Memproses...';
+  try {
+    const data = await api('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) });
+    setSession(data.token, data.user);
+    redirectByRole(data.user.role);
+  } catch (e) {
+    errBox.textContent = e.message;
+    errBox.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Masuk';
+  }
+}
+
+document.getElementById('password').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') doLogin();
+});
+</script>
+</body>
+</html>
