@@ -388,7 +388,7 @@
 
   <div id="panel-estimasi" style="display:none;">
     <h1 class="page-title">Estimasi Penghasilan</h1>
-    <p class="page-subtitle">Perkiraan penghasilan dari pesanan, direkap per hari dan per bulan. Pesanan Advance Fulfilment (tanpa harga di resi) dihitung otomatis dari harga per SKU; pesanan affiliate tidak dihitung.</p>
+    <p class="page-subtitle">Perkiraan penghasilan dari pesanan, direkap per hari dan per bulan. Pesanan Advance Fulfilment (tanpa harga di resi) dihitung otomatis dari harga per SKU lalu dikurangi potongan (kolom di bawah); pesanan affiliate tidak dihitung.</p>
 
     <div class="perf-toolbar">
       <button class="perf-chip" id="chip-est-today" onclick="setEstimasiPreset('today')">Hari Ini</button>
@@ -400,6 +400,13 @@
         <div class="cal-popup" id="calPopup-estimasi" style="display:none;"></div>
       </div>
       <span class="perf-range-label" id="estimasiRangeLabel"></span>
+    </div>
+
+    <div class="card" style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+      <label for="estPotonganInput" style="margin:0;"><b>Potongan advance shipment</b> <span class="hint">(% dari harga SKU)</span></label>
+      <input type="number" id="estPotonganInput" min="0" max="100" step="0.1" value="26" style="width:90px; margin:0;" onchange="onEstimasiPotonganChange()" onkeydown="if(event.key==='Enter'){event.preventDefault(); onEstimasiPotonganChange();}">
+      <span>%</span>
+      <span class="hint">Cuma berlaku buat pesanan yang harganya dihitung dari SKU. Tersimpan di browser ini.</span>
     </div>
 
     <div class="stat-row">
@@ -496,6 +503,6 @@
 </div>
 
 <script src="js/afParser.js?v=870cb50f"></script>
-<script src="js/dashboard.js?v=303822b1"></script>
+<script src="js/dashboard.js?v=aeff31e5"></script>
 </body>
 </html>

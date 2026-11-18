@@ -2,7 +2,7 @@ const express = require('express');
 const supabase = require('../supabase');
 const { requireAuth, requireRole } = require('../auth');
 const { splitSkuQty } = require('../skuHelpers');
-const { priceForSku } = require('../skuPrices');
+const { priceForSku, AF_DEFAULT_POTONGAN_PERSEN } = require('../skuPrices');
 
 const router = express.Router();
 
@@ -12,7 +12,8 @@ const router = express.Router();
 //     cair setelah potongan platform) kalau ada; kalau kosong, pakai harga pesanan
 //     (subtotal_pesanan). Ubah USE_PELEPASAN_DANA ke false kalau mau selalu pakai harga pesanan.
 //   - Pesanan Advance Fulfilment / advance shipment (harga "-" / kosong) -> jumlahkan
-//     harga per SKU x qty dari tabel api/_lib/skuPrices.js.
+//     harga per SKU x qty dari tabel api/_lib/skuPrices.js, lalu DIKURANGI potongan (%)
+//     (bawaan 26%, bisa diubah dari tab Estimasi lewat query ?potongan=).
 //   - Pesanan affiliate (kiriman gratis/sample) TIDAK dihitung sebagai penghasilan.
 // Pengelompokan hari & bulan pakai kalender WIB (UTC+7), konsisten sama dashboard lain.
 
@@ -91,7 +92,8 @@ function parseItems(order) {
 }
 
 // -> { estimasi, qty, sumber: 'harga_pesanan' | 'harga_sku', sku_tanpa_harga: [] }
-function estimateOrder(order) {
+function estimateOrder(order, potonganPersen) {
+  const potongan = Number.isFinite(potonganPersen) ? potonganPersen : AF_DEFAULT_POTONGAN_PERSEN;
   const items = parseItems(order);
   const qty = items.reduce((s, i) => s + i.qty, 0);
   if (USE_PELEPASAN_DANA) {
@@ -108,7 +110,7 @@ function estimateOrder(order) {
     if (price === null) unknown.push(it.sku);
     else total += price * it.qty;
   }
-  return { estimasi: total, qty, sumber: 'harga_sku', sku_tanpa_harga: unknown };
+  return { estimasi: Math.round(total * (1 - potongan / 100)), bruto: total, potongan, qty, sumber: 'harga_sku', sku_tanpa_harga: unknown };
 }
 
 const SELECT_COLS = 'no_pesanan, sku, jumlah, subtotal_pesanan, pelepasan_dana, waktu_pesanan_at';
@@ -125,6 +127,15 @@ function baseQuery(range) {
     .order('id', { ascending: false });
 }
 
+// Potongan (%) advance shipment dari query ?potongan=, dibatasi 0-100; kosong/ngaco -> bawaan.
+function getPotongan(req) {
+  const raw = String(req.query.potongan ?? '').trim().replace(',', '.');
+  if (raw === '') return AF_DEFAULT_POTONGAN_PERSEN;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return AF_DEFAULT_POTONGAN_PERSEN;
+  return Math.min(100, Math.max(0, n));
+}
+
 function getRange(req) {
   const { preset = 'this_month', from, to } = req.query;
   return resolveRange(preset, from, to);
@@ -135,6 +146,7 @@ router.get('/summary', requireAuth, requireRole('admin', 'cs'), async (req, res)
   let range;
   try { range = getRange(req); } catch (e) { return res.status(400).json({ error: e.message }); }
 
+  const potongan = getPotongan(req);
   const days = new Map(); // 'YYYY-MM-DD' -> { orders, qty, estimasi }
   let totalOrders = 0, totalQty = 0, totalEstimasi = 0, ordersTanpaHarga = 0;
   const skuTanpaHarga = new Set();
@@ -143,7 +155,7 @@ router.get('/summary', requireAuth, requireRole('admin', 'cs'), async (req, res)
     const { data, error } = await baseQuery(range).range(off, off + PAGE_SIZE - 1);
     if (error) return res.status(500).json({ error: 'Gagal mengambil data estimasi: ' + error.message });
     for (const o of data || []) {
-      const e = estimateOrder(o);
+      const e = estimateOrder(o, potongan);
       const day = wibDateStr(o.waktu_pesanan_at);
       const d = days.get(day) || { orders: 0, qty: 0, estimasi: 0 };
       d.orders += 1; d.qty += e.qty; d.estimasi += e.estimasi;
@@ -169,6 +181,7 @@ router.get('/summary', requireAuth, requireRole('admin', 'cs'), async (req, res)
 
   res.json({
     range: { from: range.from, to: range.to, label: range.label },
+    potongan,
     total_orders: totalOrders,
     total_qty: totalQty,
     total_estimasi: totalEstimasi,
@@ -186,6 +199,7 @@ router.get('/orders', requireAuth, requireRole('admin', 'cs'), async (req, res) 
   let range;
   try { range = getRange(req); } catch (e) { return res.status(400).json({ error: e.message }); }
 
+  const potongan = getPotongan(req);
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50));
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const fromIdx = (page - 1) * limit;
@@ -202,13 +216,15 @@ router.get('/orders', requireAuth, requireRole('admin', 'cs'), async (req, res) 
   if (cErr || error) return res.status(500).json({ error: 'Gagal mengambil daftar pesanan: ' + (cErr || error).message });
 
   const orders = (data || []).map((o) => {
-    const e = estimateOrder(o);
+    const e = estimateOrder(o, potongan);
     return {
       no_pesanan: o.no_pesanan,
       sku: o.sku || '',
       jumlah: e.qty,
       estimasi: e.estimasi,
       sumber: e.sumber,
+      bruto: e.bruto ?? null,
+      potongan: e.sumber === 'harga_sku' ? e.potongan : null,
       sku_tanpa_harga: e.sku_tanpa_harga,
       tanggal: wibDateStr(o.waktu_pesanan_at),
     };

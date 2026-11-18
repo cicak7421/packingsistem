@@ -70,7 +70,7 @@ Tab **Estimasi Penghasilan** di sidebar. Isinya: total estimasi, rekap per bulan
 
 Cara hitung per pesanan:
 - Pesanan regular (import Excel): pakai kolom **Pelepasan Dana Platform** (dana yang cair setelah potongan platform). Kalau kosong, pakai `subtotal_pesanan`. Mau selalu pakai harga pesanan? Set `USE_PELEPASAN_DANA = false` di `api/_lib/routes/estimasi.js`. **Jalankan `migration-pelepasan-dana.sql` di Supabase dulu sebelum deploy.**
-- Pesanan Advance Fulfilment (harga `-`/kosong) -> jumlah (harga SKU x qty) dari `api/_lib/skuPrices.js`. Semua SKU `PKT50-...` dihargai menurut ukuran di ujung kode: S 126.000, M 136.000, L 183.500, XL 193.500 (misal `PKT50-SP29S`, `PKT50-SP35M`). Harga persis per SKU bisa ditambah di `SKU_PRICE_EXACT`.
+- Pesanan Advance Fulfilment (harga `-`/kosong) -> jumlah (harga SKU x qty) dari `api/_lib/skuPrices.js`, **dikurangi potongan 26%** (bawaan `AF_DEFAULT_POTONGAN_PERSEN`; bisa diubah lewat kolom "Potongan advance shipment" di tab Estimasi, tersimpan di browser). Semua SKU `PKT50-...` dihargai menurut ukuran di ujung kode: S 126.000, M 136.000, L 183.500, XL 193.500 (misal `PKT50-SP29S`, `PKT50-SP35M`). Harga persis per SKU bisa ditambah di `SKU_PRICE_EXACT`.
 - SKU yang belum ada harganya dihitung Rp0 dan muncul peringatan di atas tabel.
 - Pesanan affiliate tidak dihitung. 
 

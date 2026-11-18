@@ -79,6 +79,11 @@ const affiliateExpanded = new Set(); // nama affiliate yang lagi di-expand detai
 // ---------- Estimasi Penghasilan state (harus dideklarasi sebelum showPanel() dipanggil di bawah) ----------
 let estimasiState = { preset: 'this_month', from: null, to: null };
 let estimasiDay = null; // 'YYYY-MM-DD' kalau lagi fokus ke satu hari dari Rekap Harian
+let estimasiPotongan = 26; // % potongan advance shipment (bawaan sama dgn AF_DEFAULT_POTONGAN_PERSEN di backend)
+try {
+  const saved = localStorage.getItem('flowmua_est_potongan');
+  if (saved !== null && saved !== '' && isFinite(Number(saved))) estimasiPotongan = Math.min(100, Math.max(0, Number(saved)));
+} catch (e) { /* abaikan */ }
 let estimasiPage = 1;
 let estimasiTotalPages = 1;
 let estimasiReqSeq = 0; // buang response ringkasan lama yang telat nyampe
@@ -2073,6 +2078,8 @@ function estNum(n) {
 }
 
 function initEstimasi() {
+  const potInput = document.getElementById('estPotonganInput');
+  if (potInput) potInput.value = estimasiPotongan;
   estimasiState = { preset: 'this_month', from: null, to: null };
   estimasiDay = null;
   closeCalPopup('estimasi');
@@ -2083,6 +2090,17 @@ function setEstimasiPreset(preset) {
   estimasiState = { preset, from: null, to: null };
   estimasiDay = null;
   closeCalPopup('estimasi');
+  loadEstimasi();
+}
+
+function onEstimasiPotonganChange() {
+  const el = document.getElementById('estPotonganInput');
+  let v = Number(String(el.value).replace(',', '.'));
+  if (!isFinite(v)) v = 26;
+  v = Math.min(100, Math.max(0, v));
+  el.value = v;
+  estimasiPotongan = v;
+  try { localStorage.setItem('flowmua_est_potongan', String(v)); } catch (e) { /* abaikan */ }
   loadEstimasi();
 }
 
@@ -2101,6 +2119,7 @@ function estimasiParams(extra) {
     params.set('preset', estimasiState.preset);
     if (estimasiState.preset === 'custom') { params.set('from', estimasiState.from); params.set('to', estimasiState.to); }
   }
+  params.set('potongan', estimasiPotongan);
   Object.entries(extra || {}).forEach(([k, v]) => params.set(k, v));
   return params;
 }
@@ -2113,7 +2132,7 @@ async function loadEstimasi() {
   document.getElementById('estWarning').innerHTML = '';
 
   // Ringkasan selalu untuk SELURUH periode (bukan 1 hari), daftar pesanan boleh difokuskan ke 1 hari.
-  const sumParams = new URLSearchParams({ preset: estimasiState.preset });
+  const sumParams = new URLSearchParams({ preset: estimasiState.preset, potongan: estimasiPotongan });
   if (estimasiState.preset === 'custom') { sumParams.set('from', estimasiState.from); sumParams.set('to', estimasiState.to); }
   try {
     const data = await api('/estimasi/summary?' + sumParams.toString());
@@ -2202,7 +2221,7 @@ async function loadEstimasiOrders() {
     } else {
       tbody.innerHTML = data.orders.map((o) => {
         const noPrice = o.sku_tanpa_harga && o.sku_tanpa_harga.length;
-        const tag = o.sumber === 'dana_platform' ? ' <span class="badge badge-muted tag-inline" title="Dari Pelepasan Dana Platform">Dana Platform</span>' : o.sumber === 'harga_sku' ? ' <span class="badge badge-muted tag-inline" title="Dihitung dari harga per SKU">Harga SKU</span>' : '';
+        const tag = o.sumber === 'dana_platform' ? ' <span class="badge badge-muted tag-inline" title="Dari Pelepasan Dana Platform">Dana Platform</span>' : o.sumber === 'harga_sku' ? ' <span class="badge badge-muted tag-inline" title="Dihitung dari harga per SKU' + (o.potongan != null ? ' (' + estRupiah(o.bruto) + ' dikurangi ' + o.potongan + '%)' : '') + '">Harga SKU' + (o.potongan ? ' −' + o.potongan + '%' : '') + '</span>' : '';
         const warn = noPrice ? ` <span class="badge badge-warn tag-inline" title="${estEsc(o.sku_tanpa_harga.join(', '))}">Harga SKU belum ada</span>` : '';
         return `<tr>
           <td>${estEsc(o.no_pesanan)}${tag}${warn}</td>

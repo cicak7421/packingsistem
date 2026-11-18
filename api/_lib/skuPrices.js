@@ -7,6 +7,10 @@
 // Cara ubah harga / nambah SKU baru: edit tabel di bawah, simpan, deploy ulang.
 const cleanSkuLocal = (v) => String(v ?? '').replace(/[\s\u00A0\u200B-\u200D\uFEFF]+/g, '').toUpperCase();
 
+// Potongan (%) dari harga SKU buat dapetin ESTIMASI PENGHASILAN advance shipment.
+// Ini cuma nilai bawaan -- di tab Estimasi Penghasilan ada kolom buat ngubahnya.
+const AF_DEFAULT_POTONGAN_PERSEN = 26;
+
 // 1) Harga persis per SKU (menang duluan dibanding aturan ukuran di bawah).
 const SKU_PRICE_EXACT = {
   'PKT50-SP29S': 126000,
@@ -30,4 +34,4 @@ function priceForSku(sku) {
   return null;
 }
 
-module.exports = { priceForSku, SKU_PRICE_EXACT, PKT50_PRICE_BY_SIZE };
+module.exports = { AF_DEFAULT_POTONGAN_PERSEN, priceForSku, SKU_PRICE_EXACT, PKT50_PRICE_BY_SIZE };
