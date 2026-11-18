@@ -21,6 +21,7 @@ const COLUMN_MAP = {
   nama_pembeli: 'Nama',
   sku: 'SKU Platform',
   subtotal_pesanan: 'Total Jumlah Pesanan',
+  pelepasan_dana: 'Pelepasan Dana Platform', // dana yang dicairkan platform (setelah potongan) -> dasar Estimasi Penghasilan
   no_hp: 'No. CP 1',
   negara: 'Negara/Wilayah',
   provinsi: 'Provinsi',
@@ -165,7 +166,7 @@ const BATCH_SIZE = 500;
 // harus selalu reflect aktor/waktu import yang paling baru.
 const MERGE_KEEP_OLD_IF_BLANK_FIELDS = [
   'toko', 'platform', 'opsi_pengiriman', 'no_resi', 'nama_pembeli', 'sku',
-  'subtotal_pesanan', 'no_hp', 'negara', 'provinsi', 'kota', 'kode_pos',
+  'subtotal_pesanan', 'pelepasan_dana', 'no_hp', 'negara', 'provinsi', 'kota', 'kode_pos',
   'alamat', 'nama_penerima', 'jumlah', 'waktu_pesanan_dibuat',
   // affiliate_name/affiliate_motif/affiliate_ongkir ikut aturan yang sama: kalau CS cuma
   // mau benerin field lain (misal No. Resi doang) lewat Input Manual dan gak nyentuh bagian
@@ -254,6 +255,7 @@ function buildRowsFromFile(rows, opts) {
         no_resi: cleanResi(item[COLUMN_MAP.no_resi]),
         nama_pembeli: String(item[COLUMN_MAP.nama_pembeli] || '').trim(),
         subtotal_pesanan: String(item[COLUMN_MAP.subtotal_pesanan] || '').trim(),
+        pelepasan_dana: String(item[COLUMN_MAP.pelepasan_dana] || '').trim(),
         no_hp: String(item[COLUMN_MAP.no_hp] || '').trim(),
         negara: String(item[COLUMN_MAP.negara] || '').trim(),
         provinsi: String(item[COLUMN_MAP.provinsi] || '').trim(),
@@ -283,6 +285,7 @@ function buildRowsFromFile(rows, opts) {
       nama_pembeli: g.nama_pembeli,
       sku: g.skuLines.join(', '),
       subtotal_pesanan: g.subtotal_pesanan,
+      pelepasan_dana: g.pelepasan_dana,
       no_hp: g.no_hp,
       negara: g.negara,
       provinsi: g.provinsi,

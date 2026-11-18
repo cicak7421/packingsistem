@@ -18,9 +18,9 @@
 <div id="appShell"></div>
 <script>(function(){var errs=[];addEventListener('error',function(e){var t=e.target;errs.push(t&&t.src?'Gagal memuat '+t.src.split('?')[0].replace(location.origin,''):(e.message||'error'));},true);addEventListener('unhandledrejection',function(e){errs.push(String(e.reason&&e.reason.message||e.reason));});setTimeout(function(){var s=document.getElementById('appShell');if(!s||s.firstElementChild)return;var b=document.createElement('div');b.style.cssText='position:fixed;inset:0;z-index:9999;background:#fff;display:flex;align-items:center;justify-content:center;padding:20px;font-family:system-ui,sans-serif';b.innerHTML='<div style="max-width:420px;text-align:center"><h2 style="margin:0 0 8px">Halaman gagal dimuat</h2><p style="color:#555;margin:0 0 14px">Coba muat ulang. Kalau tetap kosong, reset sesi lalu login lagi.</p><pre id="wdErr" style="text-align:left;background:#f4f4f6;padding:10px;border-radius:8px;font-size:12px;white-space:pre-wrap;max-height:120px;overflow:auto"></pre><button id="wdReload" style="padding:10px 16px;margin:4px;border:0;border-radius:8px;background:#1b2ab4;color:#fff;cursor:pointer">Muat ulang</button><button id="wdReset" style="padding:10px 16px;margin:4px;border:1px solid #ccc;border-radius:8px;background:#fff;cursor:pointer">Reset sesi &amp; login ulang</button></div>';document.body.appendChild(b);document.getElementById('wdErr').textContent=errs.length?errs.slice(0,5).join('\n'):'(tidak ada error tercatat)';document.getElementById('wdReload').onclick=function(){location.reload();};document.getElementById('wdReset').onclick=function(){try{localStorage.clear();}catch(e){}try{sessionStorage.clear();}catch(e){}location.href='/login.html';};},4000);})();</script>
 
-<script src="js/api.js?v=3a877e0d"></script>
+<script src="js/api.js?v=a769d831"></script>
 <script src="js/ui.js?v=998ad987"></script>
-<script>renderAppShell((function(){var t=new URLSearchParams(location.search).get('tab');return ['import','kirim-pesanan','cek-status','export','performance','affiliate','users'].indexOf(t)>-1?t:'dashboard'})());</script>
+<script>renderAppShell((function(){var t=new URLSearchParams(location.search).get('tab');return ['import','kirim-pesanan','cek-status','export','performance','affiliate','estimasi','users'].indexOf(t)>-1?t:'dashboard'})());</script>
 
 <div class="container-wide">
 
@@ -386,6 +386,68 @@
     </div>
   </div>
 
+  <div id="panel-estimasi" style="display:none;">
+    <h1 class="page-title">Estimasi Penghasilan</h1>
+    <p class="page-subtitle">Perkiraan penghasilan dari pesanan, direkap per hari dan per bulan. Pesanan Advance Fulfilment (tanpa harga di resi) dihitung otomatis dari harga per SKU; pesanan affiliate tidak dihitung.</p>
+
+    <div class="perf-toolbar">
+      <button class="perf-chip" id="chip-est-today" onclick="setEstimasiPreset('today')">Hari Ini</button>
+      <button class="perf-chip" id="chip-est-yesterday" onclick="setEstimasiPreset('yesterday')">Kemarin</button>
+      <button class="perf-chip" id="chip-est-this_month" onclick="setEstimasiPreset('this_month')">Bulan Ini</button>
+      <button class="perf-chip" id="chip-est-last_month" onclick="setEstimasiPreset('last_month')">Bulan Lalu</button>
+      <div class="cal-popup-wrap">
+        <button class="perf-chip" id="chip-est-custom" onclick="toggleCalPopup('estimasi')">📅 Pilih Tanggal</button>
+        <div class="cal-popup" id="calPopup-estimasi" style="display:none;"></div>
+      </div>
+      <span class="perf-range-label" id="estimasiRangeLabel"></span>
+    </div>
+
+    <div class="stat-row">
+      <div class="stat-card">
+        <div class="stat-value" id="estTotal" style="color:var(--primary);">-</div>
+        <div class="stat-label">Total Estimasi Penghasilan</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="estOrders">-</div>
+        <div class="stat-label">Jumlah Pesanan</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="estQty">-</div>
+        <div class="stat-label">Total Jumlah Barang</div>
+      </div>
+    </div>
+
+    <div id="estWarning"></div>
+
+    <div class="card">
+      <div class="card-title">Rekap Bulanan</div>
+      <div id="estMonthTable"><div class="empty-state">Memuat data...</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Rekap Harian <span class="hint">(klik satu hari buat lihat pesanannya)</span></div>
+      <div id="estDayTable"><div class="empty-state">Memuat data...</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span id="estDetailTitle">Detail Pesanan</span></div>
+      <div id="estDetailFilter" style="display:none; margin-bottom:10px;"></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>No. Pesanan</th><th>SKU</th><th style="text-align:right;">Jumlah</th><th style="text-align:right;">Estimasi Penghasilan</th></tr></thead>
+          <tbody id="estOrdersTable"><tr><td colspan="4" class="empty-state">Memuat data...</td></tr></tbody>
+        </table>
+      </div>
+      <div class="pagination-bar">
+        <span class="hint" id="estPageInfo"></span>
+        <div class="pagination-controls">
+          <button class="btn-outline" id="estPrevBtn" onclick="changeEstimasiPage(-1)">&larr; Sebelumnya</button>
+          <button class="btn-outline" id="estNextBtn" onclick="changeEstimasiPage(1)">Selanjutnya &rarr;</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="panel-users" style="display:none;">
     <h1 class="page-title">Kelola Akun</h1>
     <p class="page-subtitle">Tambah, nonaktifkan, atau atur akses akun tim.</p>
@@ -434,6 +496,6 @@
 </div>
 
 <script src="js/afParser.js?v=870cb50f"></script>
-<script src="js/dashboard.js?v=c17847a5"></script>
+<script src="js/dashboard.js?v=303822b1"></script>
 </body>
 </html>

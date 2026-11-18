@@ -1,5 +1,5 @@
 const user = requireLogin(['admin', 'cs']);
-let PANEL_TABS = ['dashboard', 'import', 'cek-status', 'export', 'performance', 'affiliate'];
+let PANEL_TABS = ['dashboard', 'import', 'cek-status', 'export', 'performance', 'affiliate', 'estimasi'];
 if (user && user.role === 'admin') PANEL_TABS.push('kirim-pesanan', 'users');
 
 // ---------- Dashboard state (harus dideklarasi sebelum showPanel() dipanggil di bawah) ----------
@@ -66,6 +66,7 @@ let calStates = {
   perf: { viewDate: new Date(), rangeStart: null, rangeEnd: null },
   export: { viewDate: new Date(), rangeStart: null, rangeEnd: null },
   affiliate: { viewDate: new Date(), rangeStart: null, rangeEnd: null },
+  estimasi: { viewDate: new Date(), rangeStart: null, rangeEnd: null },
 };
 
 // ---------- Export Data state (harus dideklarasi sebelum showPanel() dipanggil di bawah) ----------
@@ -74,6 +75,14 @@ let exportRange = { from: null, to: null };
 // ---------- Affiliate state (harus dideklarasi sebelum showPanel() dipanggil di bawah) ----------
 let affiliateState = { preset: 'this_month', from: null, to: null };
 const affiliateExpanded = new Set(); // nama affiliate yang lagi di-expand detailnya
+
+// ---------- Estimasi Penghasilan state (harus dideklarasi sebelum showPanel() dipanggil di bawah) ----------
+let estimasiState = { preset: 'this_month', from: null, to: null };
+let estimasiDay = null; // 'YYYY-MM-DD' kalau lagi fokus ke satu hari dari Rekap Harian
+let estimasiPage = 1;
+let estimasiTotalPages = 1;
+let estimasiReqSeq = 0; // buang response ringkasan lama yang telat nyampe
+let estimasiOrdersSeq = 0; // sama, buat daftar pesanan
 
 if (user) {
   const tab = getTabFromUrl();
@@ -91,7 +100,7 @@ function getTabFromUrl() {
 
 function showPanel(name) {
   if ((name === 'users' || name === 'kirim-pesanan') && user.role !== 'admin') name = 'dashboard';
-  ['dashboard', 'import', 'kirim-pesanan', 'cek-status', 'export', 'performance', 'affiliate', 'users'].forEach((t) => {
+  ['dashboard', 'import', 'kirim-pesanan', 'cek-status', 'export', 'performance', 'affiliate', 'estimasi', 'users'].forEach((t) => {
     const el = document.getElementById('panel-' + t);
     if (el) el.style.display = t === name ? 'block' : 'none';
   });
@@ -102,6 +111,7 @@ function showPanel(name) {
   if (name === 'performance') initPerformance();
   else stopPerfLiveRefresh();
   if (name === 'affiliate') initAffiliate();
+  if (name === 'estimasi') initEstimasi();
   if (name === 'kirim-pesanan') populatePackerSelect('kirimPesananPackerSelect');
 }
 
@@ -2050,9 +2060,179 @@ async function loadAffiliateOrders(affiliateName, i) {
   }
 }
 
+// ---------- Estimasi Penghasilan ----------
+// Backend: api/_lib/routes/estimasi.js. Harga SKU Advance Fulfilment: api/_lib/skuPrices.js.
+function estEsc(v) {
+  return String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function estRupiah(n) {
+  return 'Rp' + Math.round(Number(n) || 0).toLocaleString('id-ID');
+}
+function estNum(n) {
+  return (Number(n) || 0).toLocaleString('id-ID');
+}
+
+function initEstimasi() {
+  estimasiState = { preset: 'this_month', from: null, to: null };
+  estimasiDay = null;
+  closeCalPopup('estimasi');
+  loadEstimasi();
+}
+
+function setEstimasiPreset(preset) {
+  estimasiState = { preset, from: null, to: null };
+  estimasiDay = null;
+  closeCalPopup('estimasi');
+  loadEstimasi();
+}
+
+function updateEstimasiChipsActive() {
+  ['today', 'yesterday', 'this_month', 'last_month'].forEach((p) => {
+    document.getElementById('chip-est-' + p).classList.toggle('active', estimasiState.preset === p);
+  });
+  document.getElementById('chip-est-custom').classList.toggle('active', estimasiState.preset === 'custom');
+}
+
+function estimasiParams(extra) {
+  const params = new URLSearchParams();
+  if (estimasiDay) {
+    params.set('preset', 'custom'); params.set('from', estimasiDay); params.set('to', estimasiDay);
+  } else {
+    params.set('preset', estimasiState.preset);
+    if (estimasiState.preset === 'custom') { params.set('from', estimasiState.from); params.set('to', estimasiState.to); }
+  }
+  Object.entries(extra || {}).forEach(([k, v]) => params.set(k, v));
+  return params;
+}
+
+async function loadEstimasi() {
+  updateEstimasiChipsActive();
+  const seq = ++estimasiReqSeq;
+  document.getElementById('estMonthTable').innerHTML = '<div class="empty-state">Memuat data...</div>';
+  document.getElementById('estDayTable').innerHTML = '<div class="empty-state">Memuat data...</div>';
+  document.getElementById('estWarning').innerHTML = '';
+
+  // Ringkasan selalu untuk SELURUH periode (bukan 1 hari), daftar pesanan boleh difokuskan ke 1 hari.
+  const sumParams = new URLSearchParams({ preset: estimasiState.preset });
+  if (estimasiState.preset === 'custom') { sumParams.set('from', estimasiState.from); sumParams.set('to', estimasiState.to); }
+  try {
+    const data = await api('/estimasi/summary?' + sumParams.toString());
+    if (seq !== estimasiReqSeq) return;
+    renderEstimasiSummary(data);
+  } catch (e) {
+    if (seq !== estimasiReqSeq) return;
+    document.getElementById('estDayTable').innerHTML = `<div class="empty-state">${estEsc(e.message)}</div>`;
+    document.getElementById('estMonthTable').innerHTML = '';
+  }
+  estimasiPage = 1;
+  loadEstimasiOrders();
+}
+
+function renderEstimasiSummary(data) {
+  document.getElementById('estimasiRangeLabel').textContent = data.range.label;
+  document.getElementById('estTotal').textContent = estRupiah(data.total_estimasi);
+  document.getElementById('estOrders').textContent = estNum(data.total_orders);
+  document.getElementById('estQty').textContent = estNum(data.total_qty);
+
+  if (data.sku_tanpa_harga && data.sku_tanpa_harga.length) {
+    document.getElementById('estWarning').innerHTML = `<div class="card" style="border-color:var(--warn);">
+      <b>${estNum(data.orders_tanpa_harga)} pesanan</b> punya SKU yang harganya belum diatur, jadi dihitung Rp0:
+      <span class="hint">${data.sku_tanpa_harga.slice(0, 15).map(estEsc).join(', ')}${data.sku_tanpa_harga.length > 15 ? ', ...' : ''}</span>
+      <div class="hint">Tambahkan harganya di <code>api/_lib/skuPrices.js</code>.</div>
+    </div>`;
+  }
+
+  const row = (cells, attrs) => `<tr ${attrs || ''}>${cells.map((c, i) => `<td style="${i > 0 ? 'text-align:right;' : ''}">${c}</td>`).join('')}</tr>`;
+  const head = (first) => `<thead><tr><th>${first}</th><th style="text-align:right;">Pesanan</th><th style="text-align:right;">Jumlah</th><th style="text-align:right;">Estimasi Penghasilan</th></tr></thead>`;
+  const total = (label) => `<tfoot><tr style="font-weight:700;"><td>${label}</td><td style="text-align:right;">${estNum(data.total_orders)}</td><td style="text-align:right;">${estNum(data.total_qty)}</td><td style="text-align:right;">${estRupiah(data.total_estimasi)}</td></tr></tfoot>`;
+
+  const monthEl = document.getElementById('estMonthTable');
+  if (!data.months.length) monthEl.innerHTML = '<div class="empty-state">Belum ada pesanan di periode ini.</div>';
+  else {
+    monthEl.innerHTML = `<div class="table-wrap"><table>${head('Bulan')}<tbody>${data.months.map((m) => row([estEsc(m.label), estNum(m.orders), estNum(m.qty), `<b>${estRupiah(m.estimasi)}</b>`])).join('')}</tbody>${total('Total')}</table></div>`;
+  }
+
+  const dayEl = document.getElementById('estDayTable');
+  if (!data.days.length) dayEl.innerHTML = '<div class="empty-state">Belum ada pesanan di periode ini.</div>';
+  else {
+    dayEl.innerHTML = `<div class="table-wrap"><table>${head('Hari')}<tbody>${data.days.map((d) => row(
+      [estEsc(d.label), estNum(d.orders), estNum(d.qty), `<b>${estRupiah(d.estimasi)}</b>`],
+      `class="order-row" style="cursor:pointer;${estimasiDay === d.date ? 'background:var(--bg-sunk);' : ''}" onclick="selectEstimasiDay('${d.date}')"`
+    )).join('')}</tbody>${total('Total')}</table></div>`;
+  }
+}
+
+function selectEstimasiDay(dateStr) {
+  estimasiDay = estimasiDay === dateStr ? null : dateStr;
+  estimasiPage = 1;
+  // Highlight baris hari terpilih tanpa narik ulang ringkasan.
+  document.querySelectorAll('#estDayTable tr.order-row').forEach((tr) => {
+    tr.style.background = tr.getAttribute('onclick').includes(`'${estimasiDay}'`) ? 'var(--bg-sunk)' : '';
+  });
+  loadEstimasiOrders();
+  document.getElementById('estDetailTitle').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function clearEstimasiDay() {
+  estimasiDay = null;
+  document.querySelectorAll('#estDayTable tr.order-row').forEach((tr) => { tr.style.background = ''; });
+  estimasiPage = 1;
+  loadEstimasiOrders();
+}
+
+async function loadEstimasiOrders() {
+  const seq = ++estimasiOrdersSeq;
+  const tbody = document.getElementById('estOrdersTable');
+  const filterEl = document.getElementById('estDetailFilter');
+  tbody.innerHTML = '<tr><td colspan="4" class="empty-state">Memuat data...</td></tr>';
+  document.getElementById('estDetailTitle').textContent = estimasiDay ? `Detail Pesanan — ${formatWIBDateLabel(estimasiDay)}` : 'Detail Pesanan';
+  if (estimasiDay) {
+    filterEl.style.display = 'block';
+    filterEl.innerHTML = `<button type="button" class="btn-outline" style="width:auto; padding:6px 12px; margin:0;" onclick="clearEstimasiDay()">&times; Tampilkan semua hari di periode</button>`;
+  } else {
+    filterEl.style.display = 'none';
+  }
+
+  try {
+    const data = await api('/estimasi/orders?' + estimasiParams({ page: estimasiPage, limit: 50 }).toString());
+    if (seq !== estimasiOrdersSeq) return;
+    estimasiTotalPages = data.total_pages;
+    if (!data.orders.length) {
+      tbody.innerHTML = '<tr><td colspan="4" class="empty-state">Belum ada pesanan.</td></tr>';
+    } else {
+      tbody.innerHTML = data.orders.map((o) => {
+        const noPrice = o.sku_tanpa_harga && o.sku_tanpa_harga.length;
+        const tag = o.sumber === 'dana_platform' ? ' <span class="badge badge-muted tag-inline" title="Dari Pelepasan Dana Platform">Dana Platform</span>' : o.sumber === 'harga_sku' ? ' <span class="badge badge-muted tag-inline" title="Dihitung dari harga per SKU">Harga SKU</span>' : '';
+        const warn = noPrice ? ` <span class="badge badge-warn tag-inline" title="${estEsc(o.sku_tanpa_harga.join(', '))}">Harga SKU belum ada</span>` : '';
+        return `<tr>
+          <td>${estEsc(o.no_pesanan)}${tag}${warn}</td>
+          <td>${formatSkuChips(o.sku)}</td>
+          <td style="text-align:right;">${estNum(o.jumlah)}</td>
+          <td style="text-align:right;"><b>${estRupiah(o.estimasi)}</b></td>
+        </tr>`;
+      }).join('');
+    }
+    const from = data.total ? (data.page - 1) * data.limit + 1 : 0;
+    const to = Math.min(data.total, data.page * data.limit);
+    document.getElementById('estPageInfo').textContent = `${estNum(from)}–${estNum(to)} dari ${estNum(data.total)} pesanan`;
+    document.getElementById('estPrevBtn').disabled = data.page <= 1;
+    document.getElementById('estNextBtn').disabled = data.page >= data.total_pages;
+  } catch (e) {
+    if (seq !== estimasiOrdersSeq) return;
+    tbody.innerHTML = `<tr><td colspan="4" class="empty-state">${estEsc(e.message)}</td></tr>`;
+  }
+}
+
+function changeEstimasiPage(delta) {
+  const next = estimasiPage + delta;
+  if (next < 1 || next > estimasiTotalPages) return;
+  estimasiPage = next;
+  loadEstimasiOrders();
+}
+
 // ---------- Kalender rentang tanggal custom (ala Shopee), dipakai di Performa Packing & Export Data ----------
 // target: 'perf' atau 'export' -- masing-masing punya popup & state sendiri-sendiri.
-const CAL_MAX_RANGE_DAYS = { perf: null, export: EXPORT_MAX_RANGE_DAYS, affiliate: null }; // null = gak dibatasi
+const CAL_MAX_RANGE_DAYS = { perf: null, export: EXPORT_MAX_RANGE_DAYS, affiliate: null, estimasi: null }; // null = gak dibatasi
 
 function toggleCalPopup(target) {
   const popup = document.getElementById('calPopup-' + target);
@@ -2060,6 +2240,7 @@ function toggleCalPopup(target) {
   closeCalPopup('perf');
   closeCalPopup('export');
   closeCalPopup('affiliate');
+  closeCalPopup('estimasi');
 
   const st = calStates[target];
   st.viewDate = new Date();
@@ -2072,6 +2253,9 @@ function toggleCalPopup(target) {
   } else if (target === 'affiliate') {
     st.rangeStart = affiliateState.preset === 'custom' ? affiliateState.from : null;
     st.rangeEnd = affiliateState.preset === 'custom' ? affiliateState.to : null;
+  } else if (target === 'estimasi') {
+    st.rangeStart = estimasiState.preset === 'custom' ? estimasiState.from : null;
+    st.rangeEnd = estimasiState.preset === 'custom' ? estimasiState.to : null;
   }
   popup.style.display = 'block';
   renderCalPopup(target);
@@ -2148,6 +2332,10 @@ function calApplyRange(target) {
     affiliateState = { preset: 'custom', from, to };
     affiliateExpanded.clear();
     loadAffiliateSummary();
+  } else if (target === 'estimasi') {
+    estimasiState = { preset: 'custom', from, to };
+    estimasiDay = null;
+    loadEstimasi();
   }
 }
 

@@ -64,6 +64,16 @@ Pemetaan resi → kolom pesanan:
 
 Kalau pesanan yang sama sebelumnya sudah masuk dari import Excel dengan harga/waktu pesanan asli, nilai itu dipertahankan (gak ditimpa `-`).
 
+### Estimasi Penghasilan (admin & cs)
+
+Tab **Estimasi Penghasilan** di sidebar. Isinya: total estimasi, rekap per bulan, rekap per hari (klik satu hari buat lihat pesanannya), dan daftar pesanan (No. Pesanan, SKU, Jumlah, Estimasi). Filter: Hari Ini, Kemarin, Bulan Ini, Bulan Lalu, atau pilih tanggal sendiri. Hari & bulan dihitung pakai kalender WIB dari `waktu_pesanan_at`.
+
+Cara hitung per pesanan:
+- Pesanan regular (import Excel): pakai kolom **Pelepasan Dana Platform** (dana yang cair setelah potongan platform). Kalau kosong, pakai `subtotal_pesanan`. Mau selalu pakai harga pesanan? Set `USE_PELEPASAN_DANA = false` di `api/_lib/routes/estimasi.js`. **Jalankan `migration-pelepasan-dana.sql` di Supabase dulu sebelum deploy.**
+- Pesanan Advance Fulfilment (harga `-`/kosong) -> jumlah (harga SKU x qty) dari `api/_lib/skuPrices.js`. Semua SKU `PKT50-...` dihargai menurut ukuran di ujung kode: S 126.000, M 136.000, L 183.500, XL 193.500 (misal `PKT50-SP29S`, `PKT50-SP35M`). Harga persis per SKU bisa ditambah di `SKU_PRICE_EXACT`.
+- SKU yang belum ada harganya dihitung Rp0 dan muncul peringatan di atas tabel.
+- Pesanan affiliate tidak dihitung. 
+
 ### Kirim Pesanan (khusus admin)
 
 Tab terpisah dari Import Pesanan biasa. Admin upload file export marketplace yang isinya pesanan-pesanan yang sudah dikirim (format sama seperti file import biasa, cuma butuh kolom "No. Pesanan"). Sistem:

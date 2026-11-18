@@ -223,3 +223,6 @@ $$;
 -- bypass RLS. Jadi kamu TIDAK perlu bikin RLS policy apa pun di tabel-tabel ini,
 -- selama SUPABASE_SERVICE_ROLE_KEY di server tetap dirahasiakan (jangan pernah
 -- dipakai di kode frontend / browser).
+
+-- Estimasi Penghasilan: dana yang dicairkan platform (kolom "Pelepasan Dana Platform" di file import).
+alter table orders add column if not exists pelepasan_dana text;
