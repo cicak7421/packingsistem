@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cek &amp; Validasi - Flowmua</title>
+<meta name="theme-color" content="#1b2ab4">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<script>(function(){try{var t=localStorage.getItem("flowmua_theme");if(!t&&window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches)t="dark";if(t==="dark")document.documentElement.setAttribute("data-theme","dark")}catch(e){}})()</script>
+<link rel="stylesheet" href="css/style.css?v=167d574e">
+<!-- Font dimuat NON-blocking (tampilan langsung muncul pakai font sistem, lalu ganti mulus begitu font siap) -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap"></noscript>
+<script type="speculationrules">{"prefetch":[{"where":{"href_matches":"/*.html*"},"eagerness":"moderate"}]}</script>
+</head>
+<body>
+<script>try{document.body.classList.add("has-shell");if(localStorage.getItem("flowmua_side")==="1")document.body.classList.add("side-collapsed")}catch(e){}</script>
+<div id="appShell"></div>
+<script>(function(){var errs=[];addEventListener('error',function(e){var t=e.target;errs.push(t&&t.src?'Gagal memuat '+t.src.split('?')[0].replace(location.origin,''):(e.message||'error'));},true);addEventListener('unhandledrejection',function(e){errs.push(String(e.reason&&e.reason.message||e.reason));});setTimeout(function(){var s=document.getElementById('appShell');if(!s||s.firstElementChild)return;var b=document.createElement('div');b.style.cssText='position:fixed;inset:0;z-index:9999;background:#fff;display:flex;align-items:center;justify-content:center;padding:20px;font-family:system-ui,sans-serif';b.innerHTML='<div style="max-width:420px;text-align:center"><h2 style="margin:0 0 8px">Halaman gagal dimuat</h2><p style="color:#555;margin:0 0 14px">Coba muat ulang. Kalau tetap kosong, reset sesi lalu login lagi.</p><pre id="wdErr" style="text-align:left;background:#f4f4f6;padding:10px;border-radius:8px;font-size:12px;white-space:pre-wrap;max-height:120px;overflow:auto"></pre><button id="wdReload" style="padding:10px 16px;margin:4px;border:0;border-radius:8px;background:#1b2ab4;color:#fff;cursor:pointer">Muat ulang</button><button id="wdReset" style="padding:10px 16px;margin:4px;border:1px solid #ccc;border-radius:8px;background:#fff;cursor:pointer">Reset sesi &amp; login ulang</button></div>';document.body.appendChild(b);document.getElementById('wdErr').textContent=errs.length?errs.slice(0,5).join('\n'):'(tidak ada error tercatat)';document.getElementById('wdReload').onclick=function(){location.reload();};document.getElementById('wdReset').onclick=function(){try{localStorage.clear();}catch(e){}try{sessionStorage.clear();}catch(e){}location.href='/login.html';};},4000);})();</script>
+
+<script src="js/api.js?v=3a877e0d"></script>
+<script src="js/ui.js?v=998ad987"></script>
+<script>renderAppShell('cek-pesanan');</script>
+
+<div class="container-wide">
+  <h1 class="page-title">Cek &amp; Validasi Pesanan</h1>
+  <p class="page-subtitle">Scan atau ketik No. Resi / No. Pesanan untuk memeriksa kelengkapan data, SKU &amp; stok, lalu tandai pesanan sebagai tervalidasi. Paket yang sudah lewat batas waktu kirim ditandai merah.</p>
+
+  <div class="card">
+    <div class="cv-lookup">
+      <input id="cvInput" type="text" placeholder="Scan / ketik No. Resi atau No. Pesanan, lalu Enter" autocomplete="off" autofocus>
+      <button class="btn" onclick="cvLookup()">Cek</button>
+    </div>
+    <div class="hint" style="margin-top:8px;">Scanner barcode USB langsung bisa dipakai di kolom ini (otomatis Enter).</div>
+  </div>
+
+  <div id="cvResult"></div>
+
+  <div class="stat-row stat-row-4" id="lateStats">
+    <div class="stat-card has-icon stat-danger stat-card-click" id="lateStatCritical" onclick="setLateLevel('critical')">
+      <span class="stat-icon">🔥</span>
+      <div class="stat-value" id="cntCritical">-</div>
+      <div class="stat-label">Kritis <span class="hint" id="hintCritical"></span></div>
+    </div>
+    <div class="stat-card has-icon stat-danger stat-card-click active" id="lateStatAll" onclick="setLateLevel('all')">
+      <span class="stat-icon">🚨</span>
+      <div class="stat-value" id="cntLate">-</div>
+      <div class="stat-label">Telat Kirim <span class="hint" id="hintLate"></span></div>
+    </div>
+    <div class="stat-card has-icon stat-warn stat-card-click" id="lateStatSoon" onclick="setLateLevel('soon')">
+      <span class="stat-icon">⏳</span>
+      <div class="stat-value" id="cntSoon">-</div>
+      <div class="stat-label">Hampir Telat <span class="hint" id="hintSoon"></span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" id="lateTitle">Paket telat kirim <span class="hint">(paling lama di atas — klik baris untuk dicek &amp; divalidasi)</span></div>
+    <div class="cv-filter-row">
+      <select id="latePackingFilter" onchange="loadLate(1)" style="width:auto; margin-bottom:0;">
+        <option value="">Semua status packing</option>
+        <option value="belum_packing">Belum packing</option>
+        <option value="sudah_packing">Sudah packing, belum dikirim</option>
+      </select>
+      <span class="hint" id="lateUpdated"></span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Umur</th><th>No. Pesanan</th><th>No. Resi</th><th>Toko / Platform</th><th>Kurir</th>
+          <th>Penerima</th><th>SKU</th><th>Packing</th><th>Validasi</th>
+        </tr></thead>
+        <tbody id="lateTable"><tr><td colspan="9" class="empty-state">Memuat...</td></tr></tbody>
+      </table>
+    </div>
+    <div class="pagination-bar">
+      <span class="hint" id="latePageInfo"></span>
+      <div class="pagination-controls">
+        <button class="btn-outline" id="latePrev" onclick="loadLate(latePage-1)">&larr; Sebelumnya</button>
+        <button class="btn-outline" id="lateNext" onclick="loadLate(latePage+1)">Selanjutnya &rarr;</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="js/cek-pesanan.js?v=71989ad3"></script>
+</body>
+</html>

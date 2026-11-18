@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scan Packing - Flowmua</title>
+<meta name="theme-color" content="#1b2ab4">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<script>(function(){try{var t=localStorage.getItem("flowmua_theme");if(!t&&window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches)t="dark";if(t==="dark")document.documentElement.setAttribute("data-theme","dark")}catch(e){}})()</script>
+<link rel="stylesheet" href="css/style.css?v=167d574e">
+<!-- Font dimuat NON-blocking (tampilan langsung muncul pakai font sistem, lalu ganti mulus begitu font siap) -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap"></noscript>
+<script type="speculationrules">{"prefetch":[{"where":{"href_matches":"/*.html*"},"eagerness":"moderate"}]}</script>
+</head>
+<body>
+<script>try{document.body.classList.add("has-shell");if(localStorage.getItem("flowmua_side")==="1")document.body.classList.add("side-collapsed")}catch(e){}</script>
+<div id="appShell"></div>
+<script>(function(){var errs=[];addEventListener('error',function(e){var t=e.target;errs.push(t&&t.src?'Gagal memuat '+t.src.split('?')[0].replace(location.origin,''):(e.message||'error'));},true);addEventListener('unhandledrejection',function(e){errs.push(String(e.reason&&e.reason.message||e.reason));});setTimeout(function(){var s=document.getElementById('appShell');if(!s||s.firstElementChild)return;var b=document.createElement('div');b.style.cssText='position:fixed;inset:0;z-index:9999;background:#fff;display:flex;align-items:center;justify-content:center;padding:20px;font-family:system-ui,sans-serif';b.innerHTML='<div style="max-width:420px;text-align:center"><h2 style="margin:0 0 8px">Halaman gagal dimuat</h2><p style="color:#555;margin:0 0 14px">Coba muat ulang. Kalau tetap kosong, reset sesi lalu login lagi.</p><pre id="wdErr" style="text-align:left;background:#f4f4f6;padding:10px;border-radius:8px;font-size:12px;white-space:pre-wrap;max-height:120px;overflow:auto"></pre><button id="wdReload" style="padding:10px 16px;margin:4px;border:0;border-radius:8px;background:#1b2ab4;color:#fff;cursor:pointer">Muat ulang</button><button id="wdReset" style="padding:10px 16px;margin:4px;border:1px solid #ccc;border-radius:8px;background:#fff;cursor:pointer">Reset sesi &amp; login ulang</button></div>';document.body.appendChild(b);document.getElementById('wdErr').textContent=errs.length?errs.slice(0,5).join('\n'):'(tidak ada error tercatat)';document.getElementById('wdReload').onclick=function(){location.reload();};document.getElementById('wdReset').onclick=function(){try{localStorage.clear();}catch(e){}try{sessionStorage.clear();}catch(e){}location.href='/login.html';};},4000);})();</script>
+
+<script src="js/api.js?v=3a877e0d"></script>
+<script src="js/ui.js?v=998ad987"></script>
+<script>renderAppShell('packing');</script>
+
+<div class="container">
+  <h1 class="page-title">Scan Packing</h1>
+  <p class="page-subtitle">Arahkan kamera ke barcode resi. Sistem otomatis mendeteksi dan langsung menandai — gak perlu tekan tombol apa pun.</p>
+
+  <div class="card">
+    <div id="reader"></div>
+    <div class="scan-status" id="scanStatus"><span class="dot"></span> Siap scan...</div>
+    <div style="text-align: center; margin-top: 12px;">
+      <button class="btn-ghost" onclick="toggleManual()">Input manual (kalau barcode susah discan)</button>
+    </div>
+    <div id="manualInput" style="display:none; margin-top: 10px;">
+      <div class="field-row">
+        <input id="manualValue" type="text" placeholder="Ketik No. Resi / No. Pesanan">
+        <button class="btn" style="width:auto; padding:11px 18px;" onclick="submitScan(document.getElementById('manualValue').value)">Cek</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="resultArea"></div>
+
+  <div class="card">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
+      <div class="card-title" style="margin-bottom:0;">Riwayat scan hari ini</div>
+      <span id="todayCount" class="badge badge-ok">0</span>
+    </div>
+    <div id="historyList"><div class="empty-state">Belum ada scan hari ini</div></div>
+  </div>
+</div>
+
+<script src="js/voicePlayer.js?v=5e545b8e"></script>
+<script src="js/packing.js?v=79faca2e"></script>
+</body>
+</html>
