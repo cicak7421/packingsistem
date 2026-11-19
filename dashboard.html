@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard - Flowmua</title>
+<meta name="theme-color" content="#1b2ab4">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<script>(function(){try{var t=localStorage.getItem("flowmua_theme");if(!t&&window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches)t="dark";if(t==="dark")document.documentElement.setAttribute("data-theme","dark")}catch(e){}})()</script>
+<link rel="stylesheet" href="css/style.css?v=167d574e">
+<!-- Font dimuat NON-blocking (tampilan langsung muncul pakai font sistem, lalu ganti mulus begitu font siap) -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap"></noscript>
+<script type="speculationrules">{"prefetch":[{"where":{"href_matches":"/*.html*"},"eagerness":"moderate"}]}</script>
+</head>
+<body>
+<script>try{document.body.classList.add("has-shell");if(localStorage.getItem("flowmua_side")==="1")document.body.classList.add("side-collapsed")}catch(e){}</script>
+<div id="appShell"></div>
+<script>(function(){var errs=[];addEventListener('error',function(e){var t=e.target;errs.push(t&&t.src?'Gagal memuat '+t.src.split('?')[0].replace(location.origin,''):(e.message||'error'));},true);addEventListener('unhandledrejection',function(e){errs.push(String(e.reason&&e.reason.message||e.reason));});setTimeout(function(){var s=document.getElementById('appShell');if(!s||s.firstElementChild)return;var b=document.createElement('div');b.style.cssText='position:fixed;inset:0;z-index:9999;background:#fff;display:flex;align-items:center;justify-content:center;padding:20px;font-family:system-ui,sans-serif';b.innerHTML='<div style="max-width:420px;text-align:center"><h2 style="margin:0 0 8px">Halaman gagal dimuat</h2><p style="color:#555;margin:0 0 14px">Coba muat ulang. Kalau tetap kosong, reset sesi lalu login lagi.</p><pre id="wdErr" style="text-align:left;background:#f4f4f6;padding:10px;border-radius:8px;font-size:12px;white-space:pre-wrap;max-height:120px;overflow:auto"></pre><button id="wdReload" style="padding:10px 16px;margin:4px;border:0;border-radius:8px;background:#1b2ab4;color:#fff;cursor:pointer">Muat ulang</button><button id="wdReset" style="padding:10px 16px;margin:4px;border:1px solid #ccc;border-radius:8px;background:#fff;cursor:pointer">Reset sesi &amp; login ulang</button></div>';document.body.appendChild(b);document.getElementById('wdErr').textContent=errs.length?errs.slice(0,5).join('\n'):'(tidak ada error tercatat)';document.getElementById('wdReload').onclick=function(){location.reload();};document.getElementById('wdReset').onclick=function(){try{localStorage.clear();}catch(e){}try{sessionStorage.clear();}catch(e){}location.href='/login.html';};},4000);})();</script>
+
+<script src="js/api.js?v=a769d831"></script>
+<script src="js/ui.js?v=998ad987"></script>
+<script>renderAppShell((function(){var t=new URLSearchParams(location.search).get('tab');return ['import','kirim-pesanan','cek-status','export','performance','affiliate','estimasi','users'].indexOf(t)>-1?t:'dashboard'})());</script>
+
+<div class="container-wide">
+
+  <div id="panel-dashboard">
+    <h1 class="page-title">Dashboard</h1>
+    <p class="page-subtitle">Ringkasan status packing pesanan.</p>
+
+    <div id="lateBanner"></div>
+
+    <div class="stat-row stat-row-4">
+      <div class="stat-card has-icon stat-danger stat-card-click" id="statCardTelat" onclick="setDashboardStatus('telat')">
+        <span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+        <div class="stat-value" id="countTelat">-</div>
+        <div class="stat-label">Telat Kirim <span class="hint" id="telatStatLabelHint"></span></div>
+      </div>
+      <div class="stat-card has-icon stat-warn stat-card-click active" id="statCardBelum" onclick="setDashboardStatus('belum_packing')">
+        <span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5"/><path d="M12 13v8"/></svg></span>
+        <div class="stat-value" id="countBelum">-</div>
+        <div class="stat-label">Belum Packing</div>
+      </div>
+      <div class="stat-card has-icon stat-ok stat-card-click" id="statCardSudah" onclick="setDashboardStatus('sudah_packing')">
+        <span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8 12.5 2.8 2.8L16 9.5"/></svg></span>
+        <div class="stat-value" id="countSudah">-</div>
+        <div class="stat-label">Sudah Packing</div>
+      </div>
+      <div class="stat-card has-icon stat-brand stat-card-click" id="statCardDikirim" onclick="setDashboardStatus('dikirim')">
+        <span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 3 10 14"/><path d="m21 3-7 18-4-7-7-4z"/></svg></span>
+        <div class="stat-value" id="countDikirim">-</div>
+        <div class="stat-label">Sudah Dikirim <span class="hint" id="dikirimStatLabelDate"></span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Ringkasan per jasa kirim <span class="hint">klik untuk filter sesuai status di atas</span></div>
+      <div id="courierChips" class="courier-chip-row"><div class="empty-state">Memuat...</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title" id="ordersCardTitle">Pesanan belum packing <span class="hint">(urut pesanan terlama)</span></div>
+      <div class="orders-filter-row">
+        <input type="text" id="ordersSearchInput" class="search-input" placeholder="Cari No. Resi / No. Pesanan..." style="min-width:240px;" oninput="onOrdersSearchInput()" onkeydown="if(event.key==='Enter'){event.preventDefault(); onOrdersSearchInput(true);}">
+        <select id="courierFilterSelect" onchange="onCourierFilterChange()">
+          <option value="">Semua Jasa Kirim</option>
+        </select>
+        <select id="platformFilterSelect" onchange="onPlatformFilterChange()">
+          <option value="">Semua Platform</option>
+        </select>
+        <select id="sortSelect" onchange="onSortChange()">
+          <option value="default">Urutkan: Default</option>
+          <option value="opsi_pengiriman">Urutkan: Jasa Kirim (A-Z)</option>
+          <option value="platform">Urutkan: Platform (A-Z)</option>
+          <option value="packed_by">Urutkan: Di-packing Oleh</option>
+        </select>
+        <span id="dikirimDateFilter" style="display:none; align-items:center; gap:6px;">
+          <input type="date" id="dikirimDateInput" style="width:auto; margin-bottom:0;" onchange="onDikirimDateChange(this.value)">
+          <button type="button" class="btn-outline" style="width:auto; padding:8px 12px; margin:0;" onclick="pickDikirimQuickDate(0)">Hari Ini</button>
+          <button type="button" class="btn-outline" style="width:auto; padding:8px 12px; margin:0;" onclick="pickDikirimQuickDate(1)">Kemarin</button>
+        </span>
+      </div>
+      <div id="bulkActionBar" style="display:none; align-items:center; gap:12px; flex-wrap:wrap; padding:10px 12px; margin-bottom:10px; border:1px solid var(--danger); border-radius:8px;">
+        <b><span id="bulkSelectedCount">0</span> pesanan dipilih</b>
+        <button type="button" class="btn" style="background:var(--danger); width:auto; margin:0; padding:8px 14px;" onclick="bulkKirimSelected()">Kirim (Bypass) yang dipilih</button>
+        <button type="button" class="btn-outline" style="width:auto; margin:0; padding:8px 12px;" onclick="clearOrderSelection(); updateBulkBar(); syncSelectAllCheckbox(); syncRowCheckboxes();">Batal pilih</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead id="ordersThead"></thead>
+          <tbody id="pendingTable"></tbody>
+        </table>
+      </div>
+      <div class="pagination-bar">
+        <span class="hint" id="pendingPageInfo"></span>
+        <div class="pagination-controls">
+          <button class="btn-outline" id="pendingPrevBtn" onclick="changeDashboardPage(-1)">&larr; Sebelumnya</button>
+          <button class="btn-outline" id="pendingNextBtn" onclick="changeDashboardPage(1)">Selanjutnya &rarr;</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="panel-import" style="display:none;">
+    <h1 class="page-title">Import Pesanan</h1>
+    <p class="page-subtitle">Upload file export "Export Order Package" dari marketplace untuk ditambahkan ke sistem. Toko &amp; platform terbaca otomatis dari file. Pesanan Advance Fulfilment diimport dari PDF batch resinya (kartu di bawah).</p>
+    <div class="card">
+      <label>File pesanan (.xlsx / .xlsm hasil export "Export Order Package")</label>
+      <input type="file" id="fileInput" accept=".xlsx,.xlsm">
+      <button class="btn" onclick="doImport()">Import Sekarang</button>
+      <div id="importResult"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Advance Fulfilment <span class="hint">PDF batch resi</span></div>
+      <p class="hint" style="margin-bottom:12px;">Upload PDF batch resi Advance Fulfilment (satu halaman = satu resi). No. pesanan, no. resi, SKU, alamat, penerima, dan pengirim dibaca otomatis dari resi. Harga diisi "-" karena gak ada di resi. Hasil bacaan dicek dulu sebelum disimpan.</p>
+      <label for="afFileInput">File batch resi (.pdf)</label>
+      <input type="file" id="afFileInput" accept=".pdf,application/pdf">
+      <button class="btn" id="afReadBtn" onclick="afReadPdf()">Baca Resi</button>
+      <div id="afResult"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Gak ada file export?</div>
+      <p class="hint" style="margin-bottom:12px;">Pesanan bisa juga ditambahkan satu-satu secara manual — cocok buat pesanan COD atau pesanan dari platform yang belum ada file export-nya.</p>
+      <button class="btn-outline" style="width:auto;" onclick="openManualOrderForm()">+ Input Manual</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="manualOrderOverlay" style="display:none;" onclick="if(event.target===this) closeManualOrderForm();">
+    <div class="modal-box" style="max-width:680px;" role="dialog" aria-modal="true" aria-labelledby="moTitle">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title" id="moTitle">Input pesanan manual</div>
+          <div class="modal-subtitle">Cuma No. Pesanan yang wajib diisi, sisanya opsional.</div>
+        </div>
+        <button class="modal-close" onclick="closeManualOrderForm()" aria-label="Tutup">&times;</button>
+      </div>
+
+      <div class="form-section">
+        <div class="form-section-title">Info pesanan</div>
+        <div class="field-row">
+          <div>
+            <label for="moNoPesanan">No. Pesanan *</label>
+            <input id="moNoPesanan" type="text" placeholder="Contoh: 2608091234ABCDEF">
+          </div>
+          <div>
+            <label for="moNoResi">No. Resi</label>
+            <input id="moNoResi" type="text" placeholder="Isi kalau sudah ada">
+          </div>
+        </div>
+        <div class="field-row">
+          <div>
+            <label for="moToko">Nama toko</label>
+            <input id="moToko" type="text" placeholder="Nama toko">
+          </div>
+          <div>
+            <label for="moPlatform">Platform</label>
+            <input id="moPlatform" type="text" list="moPlatformOptions" placeholder="shopee, tiktok, dll">
+            <datalist id="moPlatformOptions">
+              <option value="shopee"><option value="tiktok"><option value="tokopedia"><option value="lazada"><option value="manual">
+            </datalist>
+          </div>
+        </div>
+        <div class="field-row">
+          <div>
+            <label for="moOpsiPengiriman">Jasa kirim</label>
+            <input id="moOpsiPengiriman" type="text" placeholder="Contoh: JNE Reguler">
+          </div>
+          <div>
+            <label for="moWaktuPesanan">Waktu pesanan</label>
+            <input id="moWaktuPesanan" type="datetime-local">
+          </div>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <div class="form-section-title">Barang yang dipesan</div>
+        <div class="item-list" id="moItemList"></div>
+        <datalist id="moSkuOptions"></datalist>
+        <div class="item-foot">
+          <button type="button" class="btn-outline" onclick="addManualItemRow('', 1, true)">+ Tambah SKU</button>
+          <span class="item-total" id="moItemTotal"></span>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <div class="form-section-title">Pembeli &amp; alamat</div>
+        <div class="field-row" id="moNamaPembeliSubtotalRow">
+          <div>
+            <label for="moNamaPembeli">Nama pembeli</label>
+            <input id="moNamaPembeli" type="text">
+          </div>
+          <div>
+            <label for="moSubtotal">Total harga</label>
+            <input id="moSubtotal" type="text" inputmode="numeric" placeholder="Contoh: 150.000">
+          </div>
+        </div>
+        <label for="moAlamat">Alamat lengkap</label>
+        <input id="moAlamat" type="text" placeholder="Alamat penerima, termasuk kota, provinsi, dan kode pos">
+      </div>
+
+      <div class="form-section">
+        <div class="check-row">
+          <label class="check-row-label">
+            <input type="checkbox" id="moIsAffiliate" onchange="toggleAffiliateFields()">
+            Pesanan affiliate <span class="hint">(kiriman gratis/sample ke affiliate, bukan jual-beli biasa)</span>
+          </label>
+        </div>
+        <div id="moAffiliateFields" style="display:none; margin-top:12px;">
+          <div class="field-row">
+            <div>
+              <label for="moAffiliateName">Nama affiliate</label>
+              <input id="moAffiliateName" type="text" list="moAffiliateNameOptions" placeholder="Nama affiliate atau influencer">
+              <datalist id="moAffiliateNameOptions"></datalist>
+            </div>
+            <div>
+              <label for="moAffiliateOngkir">Ongkos kirim (ditanggung toko)</label>
+              <input id="moAffiliateOngkir" type="text" inputmode="numeric" placeholder="Contoh: 25.000">
+            </div>
+          </div>
+          <div class="hint">Motif yang dikirim diambil otomatis dari daftar barang di atas.</div>
+        </div>
+      </div>
+
+      <div class="error-msg" id="moErrorMsg" style="display:none; margin-top:14px;" role="alert"></div>
+      <div class="error-msg" id="moSuccessMsg" style="display:none; margin-top:14px; color: var(--ok); background: var(--ok-soft);"></div>
+
+      <div class="modal-sticky-actions">
+        <div class="modal-actions">
+          <button class="btn-outline" onclick="closeManualOrderForm()">Batal</button>
+          <button class="btn" id="moSubmitBtn" onclick="submitManualOrder()">Simpan pesanan</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="panel-kirim-pesanan" style="display:none;">
+    <h1 class="page-title">Kirim Pesanan</h1>
+    <p class="page-subtitle">Khusus Admin. Upload file export marketplace untuk menandai pesanan yang sudah dikirim — sistem otomatis cocokkan tiap No. Pesanan ke database.</p>
+    <div class="card">
+      <label>File pesanan yang sudah dikirim (.xlsx / .xlsm hasil export marketplace)</label>
+      <input type="file" id="kirimPesananFileInput" accept=".xlsx,.xlsm">
+      <label style="margin-top:12px;">Packing oleh <span class="hint">(opsional — isi kalau semua pesanan di file ini di-packing oleh 1 orang yang sama, biar gak tampil "N/A" di Tracking)</span></label>
+      <select id="kirimPesananPackerSelect">
+        <option value="">-- Tidak diisi (biarkan N/A kalau belum pernah discan) --</option>
+      </select>
+      <button class="btn" onclick="doKirimPesanan()">Proses Sekarang</button>
+      <div id="kirimPesananResult"></div>
+    </div>
+    <div class="card" id="kirimPesananFailedCard" style="display:none;">
+      <div class="card-title">Pesanan Gagal Ditandai Dikirim <span class="hint">(No. Pesanan tidak ditemukan di database)</span></div>
+      <button class="btn-outline" style="width:auto; margin-bottom:12px;" onclick="downloadKirimPesananFailed()">Unduh Data Gagal (Excel)</button>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>No. Pesanan</th><th>No. Resi</th><th>SKU</th><th>Status di File</th><th>Alasan Gagal</th></tr></thead>
+          <tbody id="kirimPesananFailedTable"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="panel-cek-status" style="display:none;">
+    <h1 class="page-title">Tracking Pengiriman</h1>
+    <p class="page-subtitle">Cari No. Pesanan / No. Resi buat lacak status pengiriman terbaru dari kurir.</p>
+    <div class="card">
+      <label>No. Pesanan / No. Resi</label>
+      <div class="field-row">
+        <input id="searchInput" type="text" placeholder="Ketik atau paste nomor, lalu Enter">
+        <button class="btn" style="width:auto; padding:11px 22px;" onclick="doSearch()">Cari</button>
+      </div>
+    </div>
+    <div id="searchResults"></div>
+  </div>
+
+  <div id="panel-export" style="display:none;">
+    <h1 class="page-title">Export Data</h1>
+    <p class="page-subtitle">Download data pesanan ke Excel berdasarkan rentang tanggal import (maksimal 1 bulan).</p>
+    <div class="card">
+      <label>Rentang tanggal</label>
+      <div class="cal-popup-wrap">
+        <button type="button" class="date-range-trigger" id="exportRangeTrigger" onclick="toggleCalPopup('export')">
+          <span id="exportRangeText">Pilih tanggal</span>
+          <span class="cal-icon">📅</span>
+        </button>
+        <div class="cal-popup" id="calPopup-export" style="display:none;"></div>
+      </div>
+      <div class="hint" style="margin:6px 0 14px;">Rentang maksimal 31 hari (1 bulan) dalam sekali export.</div>
+      <button class="btn" onclick="doExport()">Export ke Excel</button>
+      <div id="exportResult"></div>
+    </div>
+  </div>
+
+  <div id="panel-performance" style="display:none;">
+    <h1 class="page-title">Performa Packing</h1>
+    <p class="page-subtitle">Pantau produktivitas packing per orang, dan tren dari waktu ke waktu.</p>
+
+    <div class="perf-toolbar">
+      <button class="perf-chip" id="chip-realtime" onclick="setPerfPreset('realtime')"><span class="dot-live"></span>Real Time</button>
+      <button class="perf-chip" id="chip-yesterday" onclick="setPerfPreset('yesterday')">Yesterday</button>
+      <button class="perf-chip" id="chip-month" onclick="setPerfPreset('month')">1 Month</button>
+      <div class="cal-popup-wrap">
+        <button class="perf-chip" id="chip-custom" onclick="toggleCalPopup('perf')">📅 Pilih Tanggal</button>
+        <div class="cal-popup" id="calPopup-perf" style="display:none;"></div>
+      </div>
+      <span class="perf-range-label" id="perfRangeLabel"></span>
+    </div>
+
+    <div class="stat-row">
+      <div class="stat-card">
+        <div class="stat-value" id="perfTotal" style="color:var(--primary);">-</div>
+        <div class="stat-label">Total Packing</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="perfActivePackers">-</div>
+        <div class="stat-label">Packer Aktif</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="perfAvg">-</div>
+        <div class="stat-label">Rata-rata / Packer</div>
+      </div>
+    </div>
+
+    <div class="stat-row" style="grid-template-columns:repeat(2,1fr);">
+      <div class="stat-card">
+        <div class="stat-value" id="perfBelum" style="color:var(--warning, #d97706);">-</div>
+        <div class="stat-label">Belum Packing</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="perfTotalSemua">-</div>
+        <div class="stat-label">Total Semua Paket <span class="hint">(sudah + belum packing)</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Ranking Packer <span class="hint">(urut dari yang paling banyak packing)</span></div>
+      <div id="perfLeaderboard"><div class="empty-state">Memuat data...</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Detail per Jasa Kirim <span class="hint">(packing apa aja di periode ini)</span></div>
+      <div id="perfCourierBreakdown"><div class="empty-state">Memuat data...</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Tren Harian <span class="hint">(total packing seluruh tim per hari)</span></div>
+      <div class="trend-chart-wrap"><div class="trend-chart" id="perfTrendChart"></div></div>
+    </div>
+  </div>
+
+  <div id="panel-affiliate" style="display:none;">
+    <h1 class="page-title">Affiliate</h1>
+    <p class="page-subtitle">Pantau pengeluaran ongkos kirim buat affiliate/influencer per bulan, dan motif produk yang paling sering dikirim.</p>
+
+    <div class="perf-toolbar">
+      <button class="perf-chip" id="chip-aff-this_month" onclick="setAffiliatePreset('this_month')">Bulan Ini</button>
+      <button class="perf-chip" id="chip-aff-last_month" onclick="setAffiliatePreset('last_month')">Bulan Lalu</button>
+      <div class="cal-popup-wrap">
+        <button class="perf-chip" id="chip-aff-custom" onclick="toggleCalPopup('affiliate')">📅 Pilih Tanggal</button>
+        <div class="cal-popup" id="calPopup-affiliate" style="display:none;"></div>
+      </div>
+      <span class="perf-range-label" id="affiliateRangeLabel"></span>
+    </div>
+
+    <div class="stat-row">
+      <div class="stat-card">
+        <div class="stat-value" id="affTotalOrders" style="color:var(--primary);">-</div>
+        <div class="stat-label">Total Pesanan Affiliate</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="affTotalOngkir" style="color:var(--warn);">-</div>
+        <div class="stat-label">Total Pengeluaran Ongkir</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="affActiveCount">-</div>
+        <div class="stat-label">Affiliate Aktif</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Rekap per Affiliate <span class="hint">(klik nama buat lihat detail pesanan & motif)</span></div>
+      <div id="affiliateLeaderboard"><div class="empty-state">Memuat data...</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Motif Produk Paling Sering Dikirim <span class="hint">(gabungan seluruh affiliate di periode ini)</span></div>
+      <div id="affiliateMotifBreakdown"><div class="empty-state">Memuat data...</div></div>
+    </div>
+  </div>
+
+  <div id="panel-estimasi" style="display:none;">
+    <h1 class="page-title">Estimasi Penghasilan</h1>
+    <p class="page-subtitle">Perkiraan penghasilan dari pesanan, direkap per hari dan per bulan berdasarkan tanggal import (kalau diimpor ulang, yang dipakai tetap waktu import pertama). Pesanan Advance Fulfilment (tanpa harga di resi) dihitung otomatis dari harga per SKU lalu dikurangi potongan (kolom di bawah); pesanan affiliate tidak dihitung.</p>
+
+    <div class="perf-toolbar">
+      <button class="perf-chip" id="chip-est-today" onclick="setEstimasiPreset('today')">Hari Ini</button>
+      <button class="perf-chip" id="chip-est-yesterday" onclick="setEstimasiPreset('yesterday')">Kemarin</button>
+      <button class="perf-chip" id="chip-est-this_month" onclick="setEstimasiPreset('this_month')">Bulan Ini</button>
+      <button class="perf-chip" id="chip-est-last_month" onclick="setEstimasiPreset('last_month')">Bulan Lalu</button>
+      <div class="cal-popup-wrap">
+        <button class="perf-chip" id="chip-est-custom" onclick="toggleCalPopup('estimasi')">📅 Pilih Tanggal</button>
+        <div class="cal-popup" id="calPopup-estimasi" style="display:none;"></div>
+      </div>
+      <span class="perf-range-label" id="estimasiRangeLabel"></span>
+    </div>
+
+    <div class="card" style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+      <label for="estPotonganInput" style="margin:0;"><b>Potongan advance shipment</b> <span class="hint">(% dari harga SKU)</span></label>
+      <input type="number" id="estPotonganInput" min="0" max="100" step="0.1" value="26" style="width:90px; margin:0;" onchange="onEstimasiPotonganChange()" onkeydown="if(event.key==='Enter'){event.preventDefault(); onEstimasiPotonganChange();}">
+      <span>%</span>
+      <span class="hint">Cuma berlaku buat pesanan yang harganya dihitung dari SKU. Tersimpan di browser ini.</span>
+    </div>
+
+    <div class="stat-row">
+      <div class="stat-card">
+        <div class="stat-value" id="estTotal" style="color:var(--primary);">-</div>
+        <div class="stat-label">Total Estimasi Penghasilan</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="estOrders">-</div>
+        <div class="stat-label">Jumlah Pesanan</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="estQty">-</div>
+        <div class="stat-label">Total Jumlah Barang</div>
+      </div>
+    </div>
+
+    <div id="estWarning"></div>
+
+    <div class="card">
+      <div class="card-title">Rekap Bulanan</div>
+      <div id="estMonthTable"><div class="empty-state">Memuat data...</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Rekap Harian <span class="hint">(klik satu hari buat lihat pesanannya)</span></div>
+      <div id="estDayTable"><div class="empty-state">Memuat data...</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span id="estDetailTitle">Detail Pesanan</span></div>
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
+        <label for="estExportSort" style="margin:0;"><b>Urutkan export</b></label>
+        <select id="estExportSort" style="width:auto; min-width:230px; margin:0;">
+          <option value="toko" selected>Nama toko (A-Z)</option>
+          <option value="terlama">Tanggal import terlama</option>
+          <option value="terbaru">Tanggal import terbaru</option>
+        </select>
+        <button type="button" class="btn-outline" id="estExportBtn" style="width:auto; margin:0;" onclick="exportEstimasiExcel()">⬇ Export Excel</button>
+        <span class="hint" id="estExportMsg"></span>
+      </div>
+      <div class="hint" style="margin-bottom:10px;">Kolom <b>Input CS</b>: merah = belum diinput tim CS, hijau = sudah. Klik tandanya buat mengubah.</div>
+      <div class="hint" id="estCsHint" style="margin-bottom:10px; color:var(--danger);"></div>
+      <div id="estDetailFilter" style="display:none; margin-bottom:10px;"></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>No. Pesanan</th><th>SKU</th><th style="text-align:right;">Jumlah</th><th style="text-align:right;">Estimasi Penghasilan</th><th style="text-align:center;">Input CS</th></tr></thead>
+          <tbody id="estOrdersTable"><tr><td colspan="5" class="empty-state">Memuat data...</td></tr></tbody>
+        </table>
+      </div>
+      <div class="pagination-bar">
+        <span class="hint" id="estPageInfo"></span>
+        <div class="pagination-controls">
+          <button class="btn-outline" id="estPrevBtn" onclick="changeEstimasiPage(-1)">&larr; Sebelumnya</button>
+          <button class="btn-outline" id="estNextBtn" onclick="changeEstimasiPage(1)">Selanjutnya &rarr;</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="panel-users" style="display:none;">
+    <h1 class="page-title">Kelola Akun</h1>
+    <p class="page-subtitle">Tambah, nonaktifkan, atau atur akses akun tim.</p>
+    <div class="card">
+      <div class="card-title">Tambah Akun Baru</div>
+      <input id="newUsername" placeholder="Username">
+      <input id="newFullname" placeholder="Nama lengkap">
+      <input id="newPassword" type="password" placeholder="Password (min 6 karakter)">
+      <select id="newRole">
+        <option value="packing">Tim Packing</option>
+        <option value="inventory">Staff Inventory</option>
+        <option value="cs">Customer Service</option>
+        <option value="admin">Admin</option>
+      </select>
+      <button class="btn" onclick="createUser()">Tambah Akun</button>
+    </div>
+    <div class="card">
+      <div class="card-title">Daftar Akun <span class="hint">(klik "Atur Akses" buat sesuaikan izin akun packing/inventory satu-satu)</span></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Username</th><th>Nama</th><th>Role</th><th>Status</th><th>Aksi</th></tr></thead>
+          <tbody id="usersTable"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="permOverlay" style="display:none;" onclick="if(event.target===this) closePermModal();">
+    <div class="modal-box" style="max-width:400px;">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">Atur Akses Akun</div>
+          <div class="modal-subtitle" id="permSubtitle"></div>
+        </div>
+        <button class="modal-close" onclick="closePermModal()">&times;</button>
+      </div>
+      <div style="margin-top:10px;" id="permList"></div>
+      <p class="hint" style="margin-top:10px;">Izin ini dipakai khusus modul Inventory. Admin selalu punya akses penuh ke semua fitur.</p>
+    </div>
+  </div>
+
+</div>
+
+<div class="modal-overlay" id="orderDetailOverlay" style="display:none;" onclick="if(event.target===this) closeOrderDetail();">
+  <div class="modal-box" id="orderDetailBox"></div>
+</div>
+
+<script src="js/afParser.js?v=870cb50f"></script>
+<script src="js/dashboard.js?v=5297dfeb"></script>
+</body>
+</html>
