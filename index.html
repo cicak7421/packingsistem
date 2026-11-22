@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>Flowmua</title></head>
+<body>
+<script src="js/api.js?v=92850260"></script>
+<script>
+const user = getUser();
+if (getToken() && user) {
+  if (user.role === 'admin' || user.role === 'cs') location.replace('/dashboard.html');
+  else if (user.role === 'packing') location.replace('/packing.html');
+  else if (user.role === 'inventory') location.replace('/inventory.html');
+  else location.replace('/login.html');
+} else {
+  location.replace('/login.html');
+}
+</script>
+</body>
+</html>
