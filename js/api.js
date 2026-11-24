@@ -193,7 +193,7 @@ async function loadLateAlertBar() {
       mount.parentNode.insertBefore(bar, mount.nextSibling);
     }
     const hrs = d.thresholds ? d.thresholds.late_hours : 24;
-    bar.innerHTML = `<span>\u{1F6A8} <b>${d.late_count} paket TELAT kirim</b> (lewat ${hrs} jam)` +
+    bar.innerHTML = `<span><b>${d.late_count} paket TELAT kirim</b> (lewat ${hrs} jam)` +
       `${d.critical_count ? ` &middot; <b>${d.critical_count} kritis</b>` : ''}` +
       `${d.soon_count ? ` &middot; ${d.soon_count} hampir telat` : ''}</span><span class="late-alert-cta">Lihat &rarr;</span>`;
   } catch (e) { /* diamkan, bar tidak kritikal */ }
