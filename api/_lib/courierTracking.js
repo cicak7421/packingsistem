@@ -215,7 +215,7 @@ function buildTrackingLink(opsiPengiriman, noResi) {
 //   SPX_COOKIE         -> cookie browser kalau SPX mulai minta sesi (jarang perlu; JANGAN di-log)
 //   SPX_DIRECT_DISABLE -> isi "1" buat matiin jalur langsung & paksa lewat BinderByte
 const SPX_TRACKING_URL = process.env.SPX_TRACKING_URL || 'https://spx.co.id/api/v2/fleet_order/tracking/search';
-const SPX_TIMEOUT_MS = 12000;
+const SPX_TIMEOUT_MS = Number(process.env.SPX_TIMEOUT_MS || 12000);
 
 function spxFormatDate(ts) {
   const n = Number(ts);
@@ -258,7 +258,7 @@ function parseSpxResponse(json) {
   };
 }
 
-async function trackSpxDirect(noResi) {
+async function trackSpxDirect(noResi, opts = {}) {
   const headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
     Accept: 'application/json, text/plain, */*',
@@ -269,7 +269,7 @@ async function trackSpxDirect(noResi) {
   if (process.env.SPX_COOKIE) headers.Cookie = process.env.SPX_COOKIE;
 
   const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  const timer = ctrl ? setTimeout(() => ctrl.abort(), SPX_TIMEOUT_MS) : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), Number(opts.timeoutMs) || SPX_TIMEOUT_MS) : null;
   let res;
   try {
     res = await fetch(`${SPX_TRACKING_URL}?sls_tracking_number=${encodeURIComponent(noResi)}`, { headers, signal: ctrl && ctrl.signal });
@@ -311,7 +311,7 @@ async function trackSpxDirect(noResi) {
 }
 
 // Lempar Error dengan .userMessage buat pesan yang aman ditampilkan ke user.
-async function trackResi({ noResi: rawNoResi, opsiPengiriman }) {
+async function trackResi({ noResi: rawNoResi, opsiPengiriman, timeoutMs }) {
   const noResi = String(rawNoResi || '').replace(/[\s\u00A0\u200B-\u200D\uFEFF]+/g, ''); // resi legacy yang kotor tetap bisa dilacak
   const apiKey = process.env.BINDERBYTE_API_KEY;
 
@@ -325,7 +325,7 @@ async function trackResi({ noResi: rawNoResi, opsiPengiriman }) {
   // SPX: coba langsung ke SPX dulu (gratis). Kalau gagal dan BinderByte tersedia, lanjut ke BinderByte.
   if (courierCode === 'spx' && process.env.SPX_DIRECT_DISABLE !== '1') {
     try {
-      return await trackSpxDirect(noResi);
+      return await trackSpxDirect(noResi, { timeoutMs });
     } catch (e) {
       console.warn('[spx-direct] gagal:', e.message);
       if (!apiKey) throw e; // gak ada cadangan -> lempar error SPX apa adanya
@@ -344,7 +344,13 @@ async function trackResi({ noResi: rawNoResi, opsiPengiriman }) {
   try {
     // User-Agent eksplisit -- beberapa WAF/CDN nge-block request tanpa UA yang jelas,
     // apalagi kalau datengnya burst (banyak request bersamaan dari IP yang sama).
-    res = await fetch(url, { headers: { 'User-Agent': 'packingsistem-cron/1.0 (+refresh-resi)' } });
+    const bbCtrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const bbTimer = bbCtrl ? setTimeout(() => bbCtrl.abort(), Number(timeoutMs) || 15000) : null;
+    try {
+      res = await fetch(url, { headers: { 'User-Agent': 'packingsistem-cron/1.0 (+refresh-resi)' }, signal: bbCtrl && bbCtrl.signal });
+    } finally {
+      if (bbTimer) clearTimeout(bbTimer);
+    }
   } catch (e) {
     // Ini murni gagal connect (DNS/network/timeout) -- belum sempat dapet response sama sekali.
     const err = new Error('Gagal menghubungi layanan cek resi: ' + e.message);
@@ -399,4 +405,11 @@ async function trackResi({ noResi: rawNoResi, opsiPengiriman }) {
   };
 }
 
-module.exports = { trackResi, detectCourierCode, buildTrackingLink, isInstantCourier, parseSpxResponse, trackSpxDirect };
+// Kurir yang bisa dicek GRATIS langsung ke web resmi kurirnya (scraping endpoint publik, tanpa
+// BinderByte). Buat kurir ini sistem terus memantau sampai paket DITERIMA (bukan cuma sampai
+// pickup), karena gak ada biaya per-hit. Tambah kurir lain di sini begitu punya jalur langsung.
+function isFreeDirectCourier(opsiPengiriman) {
+  return detectCourierCode(opsiPengiriman) === 'spx' && process.env.SPX_DIRECT_DISABLE !== '1';
+}
+
+module.exports = { trackResi, detectCourierCode, buildTrackingLink, isInstantCourier, isFreeDirectCourier, parseSpxResponse, trackSpxDirect };

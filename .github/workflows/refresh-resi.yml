@@ -1,0 +1,38 @@
+# Auto-update status resi tiap ~10 menit (gratis untuk repo publik).
+# Vercel Hobby cuma boleh cron 1x/hari per job, jadi "jam weker"-nya dipindah ke GitHub Actions:
+# workflow ini cuma memanggil endpoint /api/cron/refresh-resi di Vercel.
+#
+# Setup sekali:
+#   Repo GitHub -> Settings -> Secrets and variables -> Actions -> New repository secret
+#     CRON_SECRET = (isi sama persis dengan env CRON_SECRET di Vercel; kosongkan kalau di Vercel juga kosong)
+#   Opsional (Variables, bukan Secrets): APP_URL = https://packingsistem.vercel.app
+#
+# Catatan: jadwal GitHub Actions kadang telat beberapa menit saat GitHub sedang sibuk, dan
+# workflow terjadwal otomatis dimatikan GitHub kalau repo tidak ada aktivitas 60 hari.
+name: Refresh status resi
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: refresh-resi
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Panggil /api/cron/refresh-resi
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: ${{ vars.APP_URL || 'https://packingsistem.vercel.app' }}
+        run: |
+          AUTH=()
+          if [ -n "$CRON_SECRET" ]; then AUTH=(-H "Authorization: Bearer $CRON_SECRET"); fi
+          code=$(curl -sS -o resp.json -w '%{http_code}' --max-time 60 "${AUTH[@]}" "$APP_URL/api/cron/refresh-resi")
+          echo "HTTP $code"
+          cat resp.json; echo
+          if [ "$code" != "200" ]; then exit 1; fi

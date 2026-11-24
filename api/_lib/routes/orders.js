@@ -6,6 +6,7 @@ const { trackResi, buildTrackingLink } = require('../courierTracking');
 const { autoDeductStockForOrder, parseSkuLines } = require('../inventoryHelpers');
 const { computeLate, ageWindow, countLate, thresholds, LATE_AFTER_HOURS } = require('../lateHelpers');
 const { cleanResi } = require('../skuHelpers');
+const { runResiSync } = require('../resiSync');
 
 const router = express.Router();
 
@@ -355,6 +356,28 @@ router.get('/:id/stock', requireAuth, requireRole('admin', 'cs'), async (req, re
     deducted,
     not_deducted: notDeducted,
   });
+});
+
+// Live sync: dipanggil otomatis oleh dashboard yang sedang terbuka (tiap ~2 menit, cuma kalau
+// tab-nya kelihatan). Ngecek batch kecil resi yang paling lama belum dicek ke web kurir,
+// lalu balikin daftar pesanan yang statusnya berubah (buat notifikasi "LIVE" di dashboard).
+// Pesanan yang baru dicek < 15 menit lalu dilewati, jadi aman meski banyak dashboard kebuka.
+router.post('/live-sync', requireAuth, requireRole('admin', 'cs'), async (req, res) => {
+  try {
+    const results = await runResiSync({
+      maxPickup: Number(process.env.LIVE_SYNC_PICKUP || 12),
+      maxTransit: Number(process.env.LIVE_SYNC_TRANSIT || 6),
+      timeBudgetMs: 6500,
+      concurrency: 6,
+      requestTimeoutMs: 4500,
+      minRecheckMinutes: Number(process.env.LIVE_SYNC_RECHECK_MINUTES || 15),
+      actorId: req.user.id,
+    });
+    res.json({ ok: true, ...results, synced_at: new Date().toISOString() });
+  } catch (e) {
+    console.error('[live-sync] gagal:', e.message);
+    res.status(500).json({ error: 'Sinkronisasi resi gagal: ' + e.message });
+  }
 });
 
 // Cek status resi real-time ke ekspedisi terkait (on-demand, dipanggil pas CS klik tombol).

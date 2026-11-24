@@ -51,6 +51,7 @@
     window.fetch = function (input, init) {
       const url = typeof input === 'string' ? input : (input && input.url) || '';
       if (url.indexOf('/api/') !== 0 && url.indexOf('/api/') === -1) return nativeFetch(input, init);
+      if (init && init.background) return nativeFetch(input, init); // sinkron latar (live sync) gak usah munculin progress bar
       barBusy++;
       if (barBusy === 1) barShowTimer = setTimeout(progressStart, 250);
       const end = () => {

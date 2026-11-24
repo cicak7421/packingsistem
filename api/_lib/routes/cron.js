@@ -1,145 +1,40 @@
 const express = require('express');
 const supabase = require('../supabase');
-const { trackResi } = require('../courierTracking');
-const { autoDeductStockForOrders } = require('../inventoryHelpers');
+const { runResiSync } = require('../resiSync');
 
 const router = express.Router();
 
-// Batas jumlah pesanan yang dicek per kali jalan, biar gak kena timeout function
-// (Hobby: 10 detik). Yang paling lama belum dicek diprioritaskan duluan
-// (resi_last_checked_at ascending, null dianggap paling lama / belum pernah dicek).
-//
-// PENTING soal cakupan: cron ini CUMA ngecek pesanan yang status_resi-nya masih
-// "belum_dikirim" (artinya belum ada konfirmasi kurir udah pickup/scan paketnya sama
-// sekali). Begitu ketauan udah ada aktivitas (dikirim/diterima), pesanan itu otomatis
-// gak ke-query lagi di run berikutnya -- jadi cron ini TIDAK terus-terusan mantau
-// paket yang lagi di jalan berhari-hari (itu bikin boros hit BinderByte tanpa perlu).
-// Sisa perjalanan paket, arahkan CS/pembeli buat cek langsung ke web resmi kurirnya
-// (lihat trackingLink dari buildTrackingLink() -- dipakai di frontend).
-//
-// Ini artinya jumlah "kandidat" tiap run kira-kira = jumlah pesanan baru sejak run
-// sebelumnya (bukan numpuk berhari-hari), jadi jauh lebih murah & muat di 10 detik
-// meski volume harian ratusan pesanan.
-const MAX_PER_RUN = Number(process.env.CRON_RESI_MAX_PER_RUN || 150);
-
-// Batas waktu kerja per run (ms) sebelum berhenti dengan rapi; sisanya dilanjut run berikutnya.
-const CRON_TIME_BUDGET_MS = Number(process.env.CRON_RESI_TIME_BUDGET_MS || 7500);
-
-// Jumlah request tracking (SPX/BinderByte) yang jalan bersamaan (biar cepet tapi gak nembak API sekaligus).
-const CONCURRENCY = Number(process.env.CRON_RESI_CONCURRENCY || 8);
-
-function chunk(arr, size) {
-  const out = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
+// Verifikasi pemanggil cron. Vercel Cron otomatis kirim "Authorization: Bearer <CRON_SECRET>",
+// dan workflow GitHub Actions (.github/workflows/refresh-resi.yml) kirim header yang sama.
+function cronAuthorized(req) {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return true;
+  return (req.headers.authorization || '') === `Bearer ${secret}`;
 }
 
 // GET /api/cron/refresh-resi
-// Dipanggil otomatis oleh Vercel Cron (lihat "crons" di vercel.json), bukan dari frontend.
-// Vercel otomatis kirim header "Authorization: Bearer <CRON_SECRET>" tiap manggil cron job
-// kalau env var CRON_SECRET di-set -> di sini kita verifikasi biar endpoint ini gak bisa
-// dipanggil sembarang orang dari luar (endpoint publik URL-nya ketebak: /api/cron/refresh-resi).
+// Dipanggil otomatis (Vercel Cron 2x/hari + GitHub Actions tiap ~10 menit). Logika lengkapnya
+// ada di api/_lib/resiSync.js: tahap PICKUP (belum_dikirim -> dikirim) untuk semua kurir yang
+// bisa dicek, plus tahap TRANSIT (dikirim -> diterima) khusus kurir gratis (SPX langsung).
+// Env opsional: CRON_RESI_MAX_PER_RUN (150), CRON_RESI_TRANSIT_PER_RUN (60),
+// CRON_RESI_TIME_BUDGET_MS (7500), CRON_RESI_CONCURRENCY (8).
 router.get('/refresh-resi', async (req, res) => {
-  const secret = process.env.CRON_SECRET;
-  if (secret) {
-    const auth = req.headers.authorization || '';
-    if (auth !== `Bearer ${secret}`) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
+  if (!cronAuthorized(req)) return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    const results = await runResiSync({
+      maxPickup: Number(process.env.CRON_RESI_MAX_PER_RUN || 150),
+      maxTransit: Number(process.env.CRON_RESI_TRANSIT_PER_RUN || 60),
+      timeBudgetMs: Number(process.env.CRON_RESI_TIME_BUDGET_MS || 7500),
+      concurrency: Number(process.env.CRON_RESI_CONCURRENCY || 8),
+      requestTimeoutMs: 5000,
+    });
+    const { changes, ...summary } = results;
+    console.log('[cron/refresh-resi] Selesai:', JSON.stringify(summary));
+    res.json({ ok: true, ...summary, changed: (changes || []).length });
+  } catch (e) {
+    console.error('[cron/refresh-resi] Gagal:', e.message);
+    res.status(500).json({ error: e.message });
   }
-
-  // BinderByte opsional sekarang: SPX dicek langsung ke spx.co.id (lihat trackSpxDirect).
-  // Tanpa BINDERBYTE_API_KEY, cron tetap jalan tapi HANYA untuk resi SPX/Shopee.
-  const hasBinderByte = !!process.env.BINDERBYTE_API_KEY;
-  const spxDirectOn = process.env.SPX_DIRECT_DISABLE !== '1';
-  if (!hasBinderByte && !spxDirectOn) {
-    // Jangan gagal berisik — cuma log & keluar, biar cron run-nya tetep tercatat "selesai" di Vercel.
-    console.log('[cron/refresh-resi] Dilewati: BINDERBYTE_API_KEY belum di-set dan jalur SPX langsung dimatikan.');
-    return res.json({ ok: true, skipped: true, reason: 'BINDERBYTE_API_KEY belum di-set' });
-  }
-
-  // Ambil kandidat: punya no_resi, DAN masih "belum_dikirim" (belum ada konfirmasi
-  // pickup sama sekali). Yang paling lama belum dicek diprioritaskan duluan.
-  let candidateQuery = supabase
-    .from('orders')
-    .select('id, no_pesanan, sku, jumlah, status_packing, no_resi, opsi_pengiriman, status_resi')
-    .not('no_resi', 'is', null)
-    .neq('no_resi', '')
-    .eq('status_resi', 'belum_dikirim');
-  if (!hasBinderByte) candidateQuery = candidateQuery.or('opsi_pengiriman.ilike.%spx%,opsi_pengiriman.ilike.%shopee%');
-  const { data: orders, error: fetchError } = await candidateQuery
-    .order('resi_last_checked_at', { ascending: true, nullsFirst: true })
-    .limit(MAX_PER_RUN);
-
-  if (fetchError) {
-    console.error('[cron/refresh-resi] Gagal ambil daftar pesanan:', fetchError.message);
-    return res.status(500).json({ error: 'Gagal ambil daftar pesanan: ' + fetchError.message });
-  }
-
-  const newlyPacked = [];
-  const results = { checked: 0, updated_pickup_confirmed: 0, failed: 0, skipped_no_courier: 0 };
-  const now = new Date().toISOString();
-
-  const startedAt = Date.now();
-  for (const batch of chunk(orders || [], CONCURRENCY)) {
-    // Sisihkan waktu biar function gak kena timeout (Hobby 10 dtk). Sisanya dicek di run berikutnya --
-    // antrian diurutkan dari yang paling lama belum dicek, jadi gak ada yang terlewat.
-    if (Date.now() - startedAt > CRON_TIME_BUDGET_MS) { results.stopped_early = true; break; }
-    await Promise.all(
-      batch.map(async (order) => {
-        let tracked;
-        try {
-          tracked = await trackResi({ noResi: order.no_resi, opsiPengiriman: order.opsi_pengiriman });
-        } catch (e) {
-          // Kurir gak dikenali / API error / resi belum ada update -> lewati, coba lagi run berikutnya.
-          if (e.message && e.message.startsWith('Kurir tidak dikenali')) results.skipped_no_courier++;
-          else results.failed++;
-          // Log alasan asli-nya biar kelihatan di Vercel Function Logs, bukan cuma angka doang.
-          console.error(`[cron/refresh-resi] Gagal cek order ${order.id} (resi=${order.no_resi}, kurir="${order.opsi_pengiriman}"):`, e.message);
-          // Rekap per-alasan di response, biar langsung kebaca tanpa buka Function Logs.
-          const reasonKey = e.message || 'unknown';
-          results.failure_reasons = results.failure_reasons || {};
-          results.failure_reasons[reasonKey] = (results.failure_reasons[reasonKey] || 0) + 1;
-          // Tetep update resi_last_checked_at biar gak nyangkut di depan antrian terus tiap run.
-          await supabase.from('orders').update({ resi_last_checked_at: now }).eq('id', order.id);
-          return;
-        }
-
-        results.checked++;
-        const updatePayload = {
-          resi_courier_status: tracked.statusText,
-          resi_last_checked_at: now,
-          resi_history: tracked.history,
-        };
-
-        // Begitu kedeteksi udah ada aktivitas apa pun ("dikirim" atau langsung "diterima"
-        // kalau ceknya telat), catat & STOP -- run berikutnya gak akan ambil order ini lagi
-        // karena query di atas cuma nyari status_resi = 'belum_dikirim'.
-        if (tracked.internalStatus) {
-          updatePayload.status_resi = tracked.internalStatus;
-          if (tracked.internalStatus === 'dikirim' || tracked.internalStatus === 'diterima') {
-            updatePayload.dikirim_at = now;
-            updatePayload.status_packing = 'sudah_packing';
-            results.updated_pickup_confirmed++;
-          }
-        }
-
-        const { error: updateError } = await supabase.from('orders').update(updatePayload).eq('id', order.id);
-        if (updateError) {
-          console.error(`[cron/refresh-resi] Gagal update order ${order.id}:`, updateError.message);
-          results.failed++;
-        } else if (updatePayload.status_packing === 'sudah_packing' && order.status_packing !== 'sudah_packing') {
-          newlyPacked.push(order);
-        }
-      })
-    );
-  }
-
-  // Pesanan yang naik ke sudah_packing lewat deteksi kurir (tanpa scan) ikut motong stok.
-  try { await autoDeductStockForOrders(newlyPacked, null); } catch (e) { console.error('[cron/refresh-resi] Auto-deduct stok gagal:', e.message); }
-
-  console.log('[cron/refresh-resi] Selesai:', JSON.stringify(results));
-  res.json({ ok: true, candidates: (orders || []).length, ...results });
 });
 
 // GET /api/cron/cleanup-old-orders
