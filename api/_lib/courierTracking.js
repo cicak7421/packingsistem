@@ -265,7 +265,108 @@ function parseSpxResponse(json) {
   };
 }
 
+// ---------- SPX v2: endpoint yang dipakai halaman spx.co.id/track sejak 2026 ----------
+// Respons: data.sls_tracking_info.records[] (terbaru di index 0), tiap record punya
+// milestone_code resmi SPX: 1 = Preparing to ship (belum diserahkan), 5 = In transit,
+// 8 = Delivered. Jauh lebih pasti dibanding menebak dari teks deskripsi.
+const SPX_ORDER_INFO_URL = process.env.SPX_ORDER_INFO_URL || 'https://spx.co.id/shipment/order/open/order/get_order_info';
+const SPX_MILESTONE_PREPARING = 1;
+const SPX_MILESTONE_DELIVERED = 8;
+
+function parseSpxOrderInfo(json) {
+  const records = json && json.data && json.data.sls_tracking_info && json.data.sls_tracking_info.records;
+  if (!Array.isArray(records) || records.length === 0) return null;
+  const events = records
+    .filter((r) => r && (r.display_flag === undefined || r.display_flag === 1 || r.display_flag_v2 === 1))
+    .map((r) => {
+      const loc = r.current_location || {};
+      return {
+        ts: Number(r.actual_time || 0),
+        desc: String(r.buyer_description || r.description || r.tracking_name || '').trim(),
+        code: String(r.tracking_code || ''),
+        name: String(r.tracking_name || ''),
+        milestone: Number(r.milestone_code || 0),
+        milestoneName: String(r.milestone_name || ''),
+        location: typeof loc === 'string' ? loc : String(loc.location_name || '').trim(),
+      };
+    });
+  if (!events.length) return null;
+  events.sort((a, b) => b.ts - a.ts);
+  const latest = events[0];
+  const maxMilestone = Math.max(...events.map((e) => e.milestone));
+  let internalStatus = null;
+  if (maxMilestone >= SPX_MILESTONE_DELIVERED && latest.milestone >= SPX_MILESTONE_DELIVERED) internalStatus = 'diterima';
+  else if (maxMilestone > SPX_MILESTONE_PREPARING) internalStatus = 'dikirim';
+  else if (!maxMilestone) internalStatus = mapToInternalStatus(latest.name, [{ desc: latest.desc }], latest.desc); // field milestone hilang -> tebak dari teks
+  return {
+    rawStatus: latest.milestoneName || latest.name,
+    statusText: latest.desc || latest.name,
+    internalStatus,
+    history: events.map((e) => ({ date: spxFormatDate(e.ts), desc: e.desc || e.name, location: e.location })),
+  };
+}
+
+async function spxGetJson(url, opts) {
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36',
+    Accept: 'application/json, text/plain, */*',
+    'Accept-Language': 'id-ID,id;q=0.9,en;q=0.8',
+    Referer: 'https://spx.co.id/track',
+  };
+  if (process.env.SPX_COOKIE) headers.Cookie = process.env.SPX_COOKIE;
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), Number(opts.timeoutMs) || SPX_TIMEOUT_MS) : null;
+  let res;
+  try {
+    res = await fetch(url, { headers, signal: ctrl && ctrl.signal });
+  } catch (e) {
+    const err = new Error('Gagal menghubungi SPX: ' + (e && e.name === 'AbortError' ? 'timeout' : e.message));
+    err.userMessage = 'Gagal menghubungi SPX (jaringan/timeout). Coba lagi sebentar.';
+    throw err;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+  const rawText = await res.text();
+  let json;
+  try { json = JSON.parse(rawText); } catch (e) {
+    const err = new Error(`SPX balikin non-JSON (HTTP ${res.status}): ${rawText.slice(0, 160).replace(/\s+/g, ' ').trim()}`);
+    err.userMessage = `SPX balikin halaman aneh (HTTP ${res.status}), kemungkinan request diblokir.`;
+    throw err;
+  }
+  if (!res.ok || (json.retcode !== undefined && json.retcode !== 0)) {
+    const err = new Error(`SPX error (HTTP ${res.status}, retcode ${json.retcode}): ${json.message || json.msg || '-'}`);
+    err.userMessage = `SPX belum bisa cek resi ini: ${json.message || json.msg || 'resi belum terdaftar / belum ada update'}.`;
+    throw err;
+  }
+  return json;
+}
+
 async function trackSpxDirect(noResi, opts = {}) {
+  // 1) Endpoint baru (v2) -- status dari milestone resmi SPX.
+  let v2Error;
+  try {
+    const json = await spxGetJson(`${SPX_ORDER_INFO_URL}?spx_tn=${encodeURIComponent(noResi)}&language_code=id`, opts);
+    const parsed = parseSpxOrderInfo(json);
+    if (parsed) {
+      return {
+        courierCode: 'spx', rawStatus: parsed.rawStatus, statusText: parsed.statusText,
+        internalStatus: parsed.internalStatus, history: parsed.history.slice(0, 10), source: 'spx-direct-v2',
+      };
+    }
+    v2Error = new Error('SPX v2: resi belum punya riwayat perjalanan');
+  } catch (e) {
+    v2Error = e;
+  }
+
+  // 2) Endpoint lama sebagai cadangan.
+  try {
+    return await trackSpxLegacy(noResi, opts);
+  } catch (e) {
+    throw v2Error; // error v2 lebih relevan karena itu endpoint utama sekarang
+  }
+}
+
+async function trackSpxLegacy(noResi, opts = {}) {
   const headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
     Accept: 'application/json, text/plain, */*',
@@ -454,4 +555,4 @@ function isFreeDirectCourier(opsiPengiriman) {
   return freeProvidersFor(detectCourierCode(opsiPengiriman)).length > 0;
 }
 
-module.exports = { trackResi, detectCourierCode, buildTrackingLink, isInstantCourier, isFreeDirectCourier, isBinderByteAvailable, parseSpxResponse, trackSpxDirect };
+module.exports = { trackResi, detectCourierCode, buildTrackingLink, isInstantCourier, isFreeDirectCourier, isBinderByteAvailable, parseSpxResponse, parseSpxOrderInfo, trackSpxDirect };
