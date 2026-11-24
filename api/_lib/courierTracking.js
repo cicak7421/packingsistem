@@ -317,10 +317,25 @@ async function trackSpxDirect(noResi, opts = {}) {
   };
 }
 
+// ======================= Rantai provider: GRATIS dulu, baru BERBAYAR =======================
+// trackResi() mencoba provider sesuai urutan di bawah. Provider gratis (endpoint publik milik
+// kurirnya sendiri) selalu duluan; BinderByte (berbayar per-hit) cuma dipakai kalau semua
+// provider gratis untuk kurir itu gagal / gak ada. Mau nambah provider gratis baru (misal
+// kurir lain yang punya endpoint tracking publik)? Tambah satu entri di FREE_PROVIDERS:
+//   { name, couriers: ['kode'], enabled: () => bool, track: (noResi, { timeoutMs }) => hasil }
+// Hasil track wajib berbentuk sama dengan trackSpxDirect: { courierCode, rawStatus, statusText,
+// internalStatus, history, source }.
+const FREE_PROVIDERS = [
+  { name: 'spx-direct', couriers: ['spx'], enabled: () => process.env.SPX_DIRECT_DISABLE !== '1', track: trackSpxDirect },
+];
+
+function freeProvidersFor(courierCode) {
+  return FREE_PROVIDERS.filter((p) => p.couriers.includes(courierCode) && p.enabled());
+}
+
 // Lempar Error dengan .userMessage buat pesan yang aman ditampilkan ke user.
 async function trackResi({ noResi: rawNoResi, opsiPengiriman, timeoutMs }) {
   const noResi = String(rawNoResi || '').replace(/[\s\u00A0\u200B-\u200D\uFEFF]+/g, ''); // resi legacy yang kotor tetap bisa dilacak
-  const apiKey = process.env.BINDERBYTE_API_KEY;
 
   const courierCode = detectCourierCode(opsiPengiriman);
   if (!courierCode) {
@@ -329,17 +344,25 @@ async function trackResi({ noResi: rawNoResi, opsiPengiriman, timeoutMs }) {
     throw err;
   }
 
-  // SPX: coba langsung ke SPX dulu (gratis). Kalau gagal dan BinderByte tersedia, lanjut ke BinderByte.
-  if (courierCode === 'spx' && process.env.SPX_DIRECT_DISABLE !== '1') {
+  // 1) Provider gratis.
+  let freeError = null;
+  for (const p of freeProvidersFor(courierCode)) {
     try {
-      return await trackSpxDirect(noResi, { timeoutMs });
+      const result = await p.track(noResi, { timeoutMs });
+      return { ...result, source: result.source || p.name };
     } catch (e) {
-      console.warn('[spx-direct] gagal:', e.message);
-      // Gak ada cadangan (atau cadangannya lagi diistirahatkan) -> lempar error SPX apa adanya.
-      if (!isBinderByteAvailable()) { e.message = '[spx] ' + e.message; throw e; }
+      console.warn(`[${p.name}] gagal:`, e.message);
+      if (!freeError) { e.message = `[${courierCode}/${p.name}] ` + e.message; freeError = e; }
     }
   }
 
+  // 2) Cadangan berbayar. Kalau gak tersedia, kembalikan error provider gratis (lebih informatif).
+  if (!isBinderByteAvailable() && freeError) throw freeError;
+  return trackBinderByte(noResi, courierCode, timeoutMs);
+}
+
+async function trackBinderByte(noResi, courierCode, timeoutMs) {
+  const apiKey = process.env.BINDERBYTE_API_KEY;
   if (apiKey && Date.now() < bbBlockedUntil) {
     const err = new Error(`[${courierCode}] BinderByte diistirahatkan (saldo/kuota habis atau API key ditolak)`);
     err.userMessage = 'Layanan cek resi BinderByte sedang tidak bisa dipakai (saldo/kuota habis). Top up di binderbyte.com atau cek manual lewat tombol Lacak.';
@@ -421,14 +444,14 @@ async function trackResi({ noResi: rawNoResi, opsiPengiriman, timeoutMs }) {
       desc: h.desc || '',
       location: h.location || '',
     })),
+    source: 'binderbyte',
   };
 }
 
-// Kurir yang bisa dicek GRATIS langsung ke web resmi kurirnya (scraping endpoint publik, tanpa
-// BinderByte). Buat kurir ini sistem terus memantau sampai paket DITERIMA (bukan cuma sampai
-// pickup), karena gak ada biaya per-hit. Tambah kurir lain di sini begitu punya jalur langsung.
+// Kurir yang punya provider GRATIS (lihat FREE_PROVIDERS). Buat kurir ini sistem terus memantau
+// sampai paket DITERIMA (bukan cuma sampai pickup), karena gak ada biaya per-hit.
 function isFreeDirectCourier(opsiPengiriman) {
-  return detectCourierCode(opsiPengiriman) === 'spx' && process.env.SPX_DIRECT_DISABLE !== '1';
+  return freeProvidersFor(detectCourierCode(opsiPengiriman)).length > 0;
 }
 
 module.exports = { trackResi, detectCourierCode, buildTrackingLink, isInstantCourier, isFreeDirectCourier, isBinderByteAvailable, parseSpxResponse, trackSpxDirect };
