@@ -327,4 +327,21 @@
     requestAnimationFrame(() => document.documentElement.classList.add('ui-ready'));
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+
+  // Spotlight: kartu menyala halus mengikuti posisi kursor (desktop saja).
+  if (!reduce && window.matchMedia && matchMedia('(hover: hover)').matches) {
+    let raf = 0, last = null;
+    document.addEventListener('pointermove', (e) => {
+      last = e;
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        const el = last.target && last.target.closest && last.target.closest('.card, .stat-card, .ops-hero');
+        if (!el) return;
+        const r = el.getBoundingClientRect();
+        el.style.setProperty('--mx', (last.clientX - r.left) + 'px');
+        el.style.setProperty('--my', (last.clientY - r.top) + 'px');
+      });
+    }, { passive: true });
+  }
 })();

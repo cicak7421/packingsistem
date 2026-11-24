@@ -1529,3 +1529,150 @@ tbody tr.order-row:not(.row-late):not(.row-critical):hover > td:first-child { bo
 @media (prefers-reduced-motion: reduce) { .live-dot::after { animation: none; } }
 #pendingTable.live-refresh, #pendingTable.live-refresh.is-loading { opacity: 1; filter: none; }
 #pendingTable.live-refresh tr.order-row { animation: none !important; }
+
+/* =====================================================================
+   Flowmua v8 — "Ops Console" dipertegas: bento stat, hero dashboard,
+   border gradien bercahaya, spotlight kursor, sidebar hitam pekat.
+   ===================================================================== */
+html[data-theme="dark"], :root {
+  --side-1: #0a0c14; --side-2: #07080f; --side-3: #040509; --side: #07080f;
+}
+html[data-theme="dark"] {
+  --row-soon: rgba(251, 191, 36, 0.045);
+  --row-late: rgba(251, 113, 133, 0.05);
+  --row-critical: rgba(251, 113, 133, 0.09);
+  --bg: #04050a;
+}
+:root { --row-late: #fff5f6; --row-critical: #ffecef; --row-soon: #fffbeb; }
+
+/* Lebih lega di layar lebar */
+.container-wide { max-width: 1480px; padding: 30px 40px 80px; }
+@media (max-width: 959px) { .container-wide { padding: 18px 14px 60px; } }
+
+/* ---------- Sidebar hitam pekat + label grup ---------- */
+@media (min-width: 960px) {
+  .sidebar {
+    background:
+      radial-gradient(140% 35% at 0% 0%, rgba(124, 108, 255, .18), transparent 60%),
+      linear-gradient(180deg, #0a0c14, #040509) !important;
+  }
+  .sidebar .brand { font-size: 22px; font-weight: 700; }
+  .sidebar .brand .brand-text::after {
+    content: "OPS"; margin-left: 8px; padding: 2px 6px; border-radius: 5px; vertical-align: 3px;
+    font: 600 9.5px/1.4 var(--font-mono); letter-spacing: .12em; color: #22d3ee;
+    border: 1px solid rgba(34, 211, 238, .35); background: rgba(34, 211, 238, .08);
+  }
+  .side-clock { border-radius: 14px; background: linear-gradient(135deg, rgba(124, 108, 255, .12), rgba(34, 211, 238, .05)); }
+  .side-clock .clock-date { font-family: var(--font-mono); font-size: 11px; letter-spacing: .04em; }
+  .side-nav a { font-size: 13.5px; }
+}
+
+/* ---------- Bar & banner telat: kaca, bukan blok merah ---------- */
+.late-alert-bar {
+  background: linear-gradient(90deg, rgba(251, 113, 133, .16), rgba(251, 113, 133, .04) 60%, transparent), #0a0c14;
+  color: #ffd5db; border-bottom: 1px solid rgba(251, 113, 133, .25);
+  padding: 9px 20px 9px 40px; font-size: 13px; font-weight: 500;
+}
+.late-alert-bar::before {
+  left: 18px; top: 50%; width: 8px; height: 8px; bottom: auto; margin-top: -4px; border-radius: 50%;
+  background: #fb7185; box-shadow: 0 0 0 0 rgba(251, 113, 133, .7); animation: alertPulse 1.6s ease-out infinite;
+}
+@keyframes alertPulse { 0% { box-shadow: 0 0 0 0 rgba(251, 113, 133, .7); } 100% { box-shadow: 0 0 0 10px rgba(251, 113, 133, 0); } }
+.late-alert-cta { color: #fb7185; font-family: var(--font-mono); font-weight: 600; font-size: 12px; }
+.late-banner {
+  border: 1px solid var(--danger-line); border-radius: 12px; font-weight: 500;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--danger) 14%, transparent), transparent 75%);
+}
+
+/* ---------- Hero dashboard ---------- */
+.ops-hero {
+  position: relative; overflow: hidden; isolation: isolate;
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; flex-wrap: wrap;
+  padding: 26px 28px 24px; margin-bottom: 18px; border-radius: 20px;
+  border: 1px solid var(--border);
+  background:
+    radial-gradient(60% 120% at 100% 0%, color-mix(in srgb, var(--primary) 28%, transparent), transparent 60%),
+    radial-gradient(50% 120% at 0% 100%, color-mix(in srgb, var(--tape) 16%, transparent), transparent 60%),
+    var(--card);
+}
+.ops-hero::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; opacity: .5;
+  background-image: radial-gradient(color-mix(in srgb, var(--text) 18%, transparent) 1px, transparent 1.2px);
+  background-size: 18px 18px;
+  -webkit-mask-image: linear-gradient(90deg, transparent 30%, #000); mask-image: linear-gradient(90deg, transparent 30%, #000);
+}
+.ops-hero::after {
+  content: ""; position: absolute; z-index: -1; right: -10%; top: -60%; width: 60%; height: 220%;
+  background: conic-gradient(from 180deg, transparent, rgba(124, 108, 255, .25), rgba(34, 211, 238, .18), transparent 40%);
+  filter: blur(40px); animation: heroSpin 18s linear infinite; opacity: .8;
+}
+@keyframes heroSpin { to { transform: rotate(360deg); } }
+.ops-hero .page-title { margin: 0 0 6px; font-size: 40px; }
+.ops-hero .page-subtitle { margin: 0; }
+.ops-hero .live-bar { margin: 0; justify-content: flex-end; }
+.ops-hero-left { min-width: 0; }
+@media (max-width: 640px) { .ops-hero { padding: 20px 18px; } .ops-hero .page-title { font-size: 30px; } .ops-hero .live-bar { justify-content: flex-start; } }
+
+/* ---------- Stat bento ---------- */
+.stat-row.stat-row-4 { gap: 14px; }
+.stat-card.has-icon {
+  padding: 20px 22px 22px; min-height: 128px; align-content: space-between;
+  grid-template-columns: 1fr auto; grid-template-areas: "label icon" "value icon";
+  border-radius: 18px;
+}
+.stat-card.has-icon .stat-icon { width: 42px; height: 42px; align-self: start; }
+.stat-card.has-icon .stat-value { font-size: 46px; font-weight: 600; margin-top: 10px; text-shadow: 0 0 28px color-mix(in srgb, var(--accent) 45%, transparent); }
+.stat-card.has-icon .stat-label { align-self: start; font-size: 11px; color: var(--muted); }
+/* garis grafik dekoratif di dasar kartu */
+.stat-card.has-icon::before {
+  left: 0; right: 0; top: auto; bottom: 0; width: auto; height: 46px; border-radius: 0; opacity: .55; transform: none !important;
+  background:
+    linear-gradient(180deg, transparent, color-mix(in srgb, var(--accent) 12%, transparent)),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 40' preserveAspectRatio='none'%3E%3Cpath d='M0 32 L20 28 L40 30 L60 20 L80 24 L100 14 L120 18 L140 8 L160 13 L180 5 L200 9' fill='none' stroke='%23ffffff' stroke-opacity='.35' stroke-width='1.4' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center / 100% 100% no-repeat;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 30%); mask-image: linear-gradient(90deg, transparent, #000 30%);
+}
+:root:not([data-theme="dark"]) .stat-card.has-icon::before { filter: invert(1); opacity: .25; }
+
+/* ---------- Border gradien bercahaya + spotlight kursor ---------- */
+.card, .stat-card, .ops-hero { --mx: 50%; --my: 50%; }
+.card::after, .ops-hero > .spot {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0; transition: opacity .3s;
+  background: radial-gradient(420px circle at var(--mx) var(--my), color-mix(in srgb, var(--primary) 10%, transparent), transparent 60%);
+}
+.card { position: relative; }
+.card:hover::after { opacity: 1; }
+.stat-card-click.active {
+  border-color: transparent;
+  background:
+    linear-gradient(var(--card), var(--card)) padding-box,
+    linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 10%, transparent) 50%, var(--accent)) border-box;
+}
+html[data-theme="dark"] .stat-card-click.active {
+  background:
+    linear-gradient(180deg, #121628, #0b0e1a) padding-box,
+    linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 8%, transparent) 50%, var(--accent)) border-box;
+}
+
+/* ---------- Tabel lebih bersih ---------- */
+.table-wrap { border-radius: 14px; }
+th { position: sticky; top: 0; z-index: 1; }
+td { border-bottom-color: color-mix(in srgb, var(--border) 70%, transparent); }
+tr.order-row.row-late > td:first-child, tr.order-row.row-critical > td:first-child { box-shadow: inset 2px 0 0 var(--danger); }
+tr.order-row.row-critical > td:first-child { box-shadow: inset 3px 0 0 var(--danger), inset 14px 0 18px -14px var(--danger); }
+.badge-late, html[data-theme="dark"] .badge-late, .badge-critical {
+  background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger);
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+}
+.badge-late::before { background: currentColor; }
+.sku-chip { border-radius: 6px; background: var(--card-2); font-weight: 500; }
+.sku-chip-qty { color: var(--tape); }
+
+/* ---------- Chip kurir & filter ---------- */
+.courier-chip { height: 34px; padding: 0 6px 0 12px; }
+.courier-chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--muted-soft); }
+.courier-chip.active::before { background: #fff; box-shadow: 0 0 8px #fff; }
+.orders-filter-row input, .orders-filter-row select { height: 38px; background-color: var(--input-bg); }
+
+/* ---------- Card title gaya terminal ---------- */
+.card-title::before { content: "▍"; color: var(--tape); margin-right: 6px; text-shadow: 0 0 10px var(--tape); }
+.page-title::before { content: "~/flowmua $"; }

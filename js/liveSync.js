@@ -60,7 +60,18 @@
     feed = document.createElement('div');
     feed.className = 'live-feed';
     feed.setAttribute('aria-live', 'polite');
-    if (sub) { sub.after(bar); bar.after(feed); } else { panel.prepend(feed); panel.prepend(bar); }
+    // Hero: judul + subjudul di kiri, status LIVE di kanan.
+    const title = panel.querySelector('.page-title');
+    const hero = document.createElement('div');
+    hero.className = 'ops-hero';
+    const left = document.createElement('div');
+    left.className = 'ops-hero-left';
+    if (title) { title.before(hero); left.appendChild(title); }
+    else panel.prepend(hero);
+    if (sub) left.appendChild(sub);
+    hero.appendChild(left);
+    hero.appendChild(bar);
+    hero.after(feed);
     bar.querySelector('[data-live="now"]').onclick = () => runSync(true);
     bar.querySelector('[data-live="toggle"]').onclick = () => {
       paused = !paused;
