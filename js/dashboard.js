@@ -358,7 +358,7 @@ function applyDashboardSummary(summary, status) {
   const lateHours = summary.thresholds ? summary.thresholds.late_hours : 24;
   document.getElementById('telatStatLabelHint').textContent = `(>${lateHours} jam)`;
   document.getElementById('lateBanner').innerHTML = summary.late_count && status !== 'telat'
-    ? `<div class="late-banner" onclick="setDashboardStatus('telat')">🚨 ${summary.late_count} paket TELAT kirim (lewat ${lateHours} jam)${summary.critical_count ? ` — ${summary.critical_count} kritis` : ''}. Klik untuk lihat daftarnya.</div>`
+    ? `<div class="late-banner" onclick="setDashboardStatus('telat')">${summary.late_count} paket TELAT kirim (lewat ${lateHours} jam)${summary.critical_count ? ` — ${summary.critical_count} kritis` : ''}. Klik untuk lihat daftarnya.</div>`
     : '';
 }
 

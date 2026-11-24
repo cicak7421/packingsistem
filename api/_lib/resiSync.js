@@ -13,7 +13,7 @@
 // diurutkan dari yang paling lama belum dicek, jadi sisa yang belum sempat otomatis
 // dilanjutkan di run berikutnya.
 const supabase = require('./supabase');
-const { trackResi, isInstantCourier, isFreeDirectCourier } = require('./courierTracking');
+const { trackResi, isInstantCourier, isFreeDirectCourier, isBinderByteAvailable } = require('./courierTracking');
 const { autoDeductStockForOrders } = require('./inventoryHelpers');
 
 const COLS = 'id, no_pesanan, sku, jumlah, status_packing, no_resi, opsi_pengiriman, status_resi, resi_last_checked_at, dikirim_at';
@@ -29,14 +29,22 @@ function chunk(arr, size) {
 const minutesAgoIso = (m) => new Date(Date.now() - m * 60000).toISOString();
 const checkedBefore = (o, iso) => !o.resi_last_checked_at || o.resi_last_checked_at < iso;
 
-async function fetchPickupCandidates({ limit, minRecheckMinutes, hasBinderByte }) {
-  let q = supabase
+// Kurir instant/sameday gak punya jejak tracking yang bisa dicek (lihat isInstantCourier).
+const notInstant = (q) => q
+  .not('opsi_pengiriman', 'ilike', '%instant%')
+  .not('opsi_pengiriman', 'ilike', '%sameday%')
+  .not('opsi_pengiriman', 'ilike', '%same day%');
+
+async function queryPickup({ limit, minRecheckMinutes, spx }) {
+  let q = notInstant(supabase
     .from('orders')
     .select(COLS)
     .not('no_resi', 'is', null)
     .neq('no_resi', '')
-    .eq('status_resi', 'belum_dikirim');
-  if (!hasBinderByte) q = q.or('opsi_pengiriman.ilike.%spx%,opsi_pengiriman.ilike.%shopee%');
+    .eq('status_resi', 'belum_dikirim'));
+  q = spx
+    ? q.or('opsi_pengiriman.ilike.%spx%,opsi_pengiriman.ilike.%shopee%')
+    : q.not('opsi_pengiriman', 'ilike', '%spx%').not('opsi_pengiriman', 'ilike', '%shopee%');
   // Ambil lebih banyak dari limit, lalu saring yang baru-baru ini sudah dicek (biar gak dobel
   // ditembak kalau beberapa dashboard kebuka bersamaan).
   const { data, error } = await q
@@ -47,11 +55,20 @@ async function fetchPickupCandidates({ limit, minRecheckMinutes, hasBinderByte }
   return (data || []).filter((o) => !iso || checkedBefore(o, iso)).slice(0, limit);
 }
 
+// SPX (gratis, langsung ke spx.co.id) diambil duluan; sisa kuota baru buat kurir lain via
+// BinderByte -- itupun cuma kalau BinderByte lagi bisa dipakai (saldo ada).
+async function fetchPickupCandidates({ limit, minRecheckMinutes, spxOn }) {
+  const spx = spxOn ? await queryPickup({ limit, minRecheckMinutes, spx: true }) : [];
+  const room = limit - spx.length;
+  const others = room > 0 && isBinderByteAvailable() ? await queryPickup({ limit: room, minRecheckMinutes, spx: false }) : [];
+  return [...spx, ...others];
+}
+
 async function fetchTransitCandidates({ limit }) {
   const since = new Date(Date.now() - TRANSIT_MAX_DAYS * 86400000).toISOString();
-  const { data, error } = await supabase
+  const { data, error } = await notInstant(supabase
     .from('orders')
-    .select(COLS)
+    .select(COLS))
     .eq('status_resi', 'dikirim')
     .gte('dikirim_at', since)
     .not('no_resi', 'is', null)
@@ -91,7 +108,7 @@ async function runResiSync(opts) {
   };
   if (!hasBinderByte && !spxDirectOn) return { ...results, skipped: true, reason: 'Tidak ada sumber tracking aktif' };
 
-  const pickup = await fetchPickupCandidates({ limit: maxPickup, minRecheckMinutes, hasBinderByte });
+  const pickup = await fetchPickupCandidates({ limit: maxPickup, minRecheckMinutes, spxOn: spxDirectOn });
   const transit = maxTransit > 0 && spxDirectOn ? await fetchTransitCandidates({ limit: maxTransit }) : [];
   const queue = [...pickup.map((o) => ({ o, phase: 'pickup' })), ...transit.map((o) => ({ o, phase: 'transit' }))];
   results.candidates = queue.length;

@@ -8,6 +8,13 @@
 // jalur langsung gagal. Tes dengan resi asli: node scripts/test-spx.js <no_resi>
 
 const BINDERBYTE_BASE_URL = 'https://api.binderbyte.com/v1/track';
+// Circuit breaker: kalau BinderByte nolak karena saldo/kuota/API key, jangan dipanggil lagi
+// selama BB_COOLDOWN_MS (berlaku per instance function yang masih hangat).
+const BB_COOLDOWN_MS = Number(process.env.BINDERBYTE_COOLDOWN_MS || 30 * 60 * 1000);
+let bbBlockedUntil = 0;
+function isBinderByteAvailable() {
+  return !!process.env.BINDERBYTE_API_KEY && Date.now() >= bbBlockedUntil;
+}
 
 // Mapping dari teks "Opsi Pengiriman" hasil export Shopee -> kode kurir BinderByte.
 // Cocokin berdasarkan kata kunci (case-insensitive). Tambahin baris baru kalau ada
@@ -328,8 +335,15 @@ async function trackResi({ noResi: rawNoResi, opsiPengiriman, timeoutMs }) {
       return await trackSpxDirect(noResi, { timeoutMs });
     } catch (e) {
       console.warn('[spx-direct] gagal:', e.message);
-      if (!apiKey) throw e; // gak ada cadangan -> lempar error SPX apa adanya
+      // Gak ada cadangan (atau cadangannya lagi diistirahatkan) -> lempar error SPX apa adanya.
+      if (!isBinderByteAvailable()) { e.message = '[spx] ' + e.message; throw e; }
     }
+  }
+
+  if (apiKey && Date.now() < bbBlockedUntil) {
+    const err = new Error(`[${courierCode}] BinderByte diistirahatkan (saldo/kuota habis atau API key ditolak)`);
+    err.userMessage = 'Layanan cek resi BinderByte sedang tidak bisa dipakai (saldo/kuota habis). Top up di binderbyte.com atau cek manual lewat tombol Lacak.';
+    throw err;
   }
 
   if (!apiKey) {
@@ -381,7 +395,12 @@ async function trackResi({ noResi: rawNoResi, opsiPengiriman, timeoutMs }) {
   // juga HTTP status code aslinya di pesan error -- kalau body-nya JSON tapi HTTP-nya
   // 401/403/429/500, itu clue penting (auth/rate-limit/server error) yang sebelumnya ketutup.
   if (!json || json.status !== 200) {
-    const err = new Error(`BinderByte error (HTTP ${res.status}): ` + (json?.message || 'unknown, status field: ' + json?.status));
+    // Saldo/kuota habis atau API key salah -> istirahatkan BinderByte sebentar, biar sync
+    // berikutnya gak buang waktu nembak ulang (dan antrian fokus ke kurir gratis seperti SPX).
+    if (res.status === 401 || res.status === 402 || res.status === 403 || /credit|kredit|kuota|quota|saldo|limit|topup|api.?key/i.test(String(json?.message || ''))) {
+      bbBlockedUntil = Date.now() + BB_COOLDOWN_MS;
+    }
+    const err = new Error(`[${courierCode}] BinderByte error (HTTP ${res.status}): ` + (json?.message || 'unknown, status field: ' + json?.status));
     err.userMessage = json?.message
       ? `Belum bisa cek status: ${json.message}`
       : `Belum bisa cek status resi ini (HTTP ${res.status}, mungkin belum ada update dari kurir, nomor resi belum terdaftar, atau kuota/rate-limit habis).`;
@@ -412,4 +431,4 @@ function isFreeDirectCourier(opsiPengiriman) {
   return detectCourierCode(opsiPengiriman) === 'spx' && process.env.SPX_DIRECT_DISABLE !== '1';
 }
 
-module.exports = { trackResi, detectCourierCode, buildTrackingLink, isInstantCourier, isFreeDirectCourier, parseSpxResponse, trackSpxDirect };
+module.exports = { trackResi, detectCourierCode, buildTrackingLink, isInstantCourier, isFreeDirectCourier, isBinderByteAvailable, parseSpxResponse, trackSpxDirect };
