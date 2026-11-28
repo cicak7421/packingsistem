@@ -1,5 +1,5 @@
 const user = requireLogin(['admin', 'cs']);
-let PANEL_TABS = ['dashboard', 'import', 'cek-status', 'export', 'performance', 'affiliate', 'estimasi', 'konfigurasi'];
+let PANEL_TABS = ['dashboard', 'import', 'cek-status', 'export', 'performance', 'affiliate', 'estimasi', 'konfigurasi', 'retur'];
 if (user && user.role === 'admin') PANEL_TABS.push('kirim-pesanan', 'users');
 
 // ---------- Dashboard state (harus dideklarasi sebelum showPanel() dipanggil di bawah) ----------
@@ -102,7 +102,7 @@ function getTabFromUrl() {
 
 function showPanel(name) {
   if ((name === 'users' || name === 'kirim-pesanan') && user.role !== 'admin') name = 'dashboard';
-  ['dashboard', 'import', 'kirim-pesanan', 'cek-status', 'export', 'performance', 'affiliate', 'estimasi', 'konfigurasi', 'users'].forEach((t) => {
+  ['dashboard', 'import', 'kirim-pesanan', 'cek-status', 'export', 'performance', 'affiliate', 'estimasi', 'konfigurasi', 'retur', 'users'].forEach((t) => {
     const el = document.getElementById('panel-' + t);
     if (el) el.style.display = t === name ? 'block' : 'none';
   });
@@ -115,6 +115,7 @@ function showPanel(name) {
   if (name === 'affiliate') initAffiliate();
   if (name === 'estimasi') initEstimasi();
   if (name === 'konfigurasi') loadKonfigurasi();
+  if (name === 'retur' && typeof initRetur === 'function') initRetur(); // js/retur.js
   if (name === 'kirim-pesanan') populatePackerSelect('kirimPesananPackerSelect');
 }
 
@@ -2294,6 +2295,11 @@ function renderEstimasiSummary(data) {
   document.getElementById('estTotal').textContent = estRupiah(data.total_estimasi);
   document.getElementById('estOrders').textContent = estNum(data.total_orders);
   document.getElementById('estQty').textContent = estNum(data.total_qty);
+  const returEl = document.getElementById('estRetur');
+  if (returEl) {
+    returEl.textContent = estNum(data.total_retur || 0);
+    document.getElementById('estReturNilai').textContent = data.total_retur ? '−' + estRupiah(data.total_retur_nilai) + ' tidak dihitung' : 'tidak ada retur';
+  }
   document.getElementById('estPotonganInfo').textContent = estNum(data.potongan) + '%';
 
   if (data.sku_tanpa_harga && data.sku_tanpa_harga.length) {
@@ -2305,20 +2311,22 @@ function renderEstimasiSummary(data) {
   }
 
   const row = (cells, attrs) => `<tr ${attrs || ''}>${cells.map((c, i) => `<td style="${i > 0 ? 'text-align:right;' : ''}">${c}</td>`).join('')}</tr>`;
-  const head = (first) => `<thead><tr><th>${first}</th><th style="text-align:right;">Pesanan</th><th style="text-align:right;">Jumlah</th><th style="text-align:right;">Estimasi Penghasilan</th></tr></thead>`;
-  const total = (label) => `<tfoot><tr style="font-weight:700;"><td>${label}</td><td style="text-align:right;">${estNum(data.total_orders)}</td><td style="text-align:right;">${estNum(data.total_qty)}</td><td style="text-align:right;">${estRupiah(data.total_estimasi)}</td></tr></tfoot>`;
+  // Kolom Retur: jumlah pesanan retur + nilainya (sudah TIDAK termasuk di Estimasi Penghasilan).
+  const returCell = (n, nilai) => (n ? `<span class="badge badge-danger">${estNum(n)}</span> <span class="hint">−${estRupiah(nilai)}</span>` : '<span class="hint">-</span>');
+  const head = (first) => `<thead><tr><th>${first}</th><th style="text-align:right;">Pesanan</th><th style="text-align:right;">Jumlah</th><th style="text-align:right;">Retur</th><th style="text-align:right;">Estimasi Penghasilan</th></tr></thead>`;
+  const total = (label) => `<tfoot><tr style="font-weight:700;"><td>${label}</td><td style="text-align:right;">${estNum(data.total_orders)}</td><td style="text-align:right;">${estNum(data.total_qty)}</td><td style="text-align:right;">${returCell(data.total_retur, data.total_retur_nilai)}</td><td style="text-align:right;">${estRupiah(data.total_estimasi)}</td></tr></tfoot>`;
 
   const monthEl = document.getElementById('estMonthTable');
   if (!data.months.length) monthEl.innerHTML = '<div class="empty-state">Belum ada pesanan di periode ini.</div>';
   else {
-    monthEl.innerHTML = `<div class="table-wrap"><table>${head('Bulan')}<tbody>${data.months.map((m) => row([estEsc(m.label), estNum(m.orders), estNum(m.qty), `<b>${estRupiah(m.estimasi)}</b>`])).join('')}</tbody>${total('Total')}</table></div>`;
+    monthEl.innerHTML = `<div class="table-wrap"><table>${head('Bulan')}<tbody>${data.months.map((m) => row([estEsc(m.label), estNum(m.orders), estNum(m.qty), returCell(m.retur, m.retur_nilai), `<b>${estRupiah(m.estimasi)}</b>`])).join('')}</tbody>${total('Total')}</table></div>`;
   }
 
   const dayEl = document.getElementById('estDayTable');
   if (!data.days.length) dayEl.innerHTML = '<div class="empty-state">Belum ada pesanan di periode ini.</div>';
   else {
     dayEl.innerHTML = `<div class="table-wrap"><table>${head('Hari')}<tbody>${data.days.map((d) => row(
-      [estEsc(d.label), estNum(d.orders), estNum(d.qty), `<b>${estRupiah(d.estimasi)}</b>`],
+      [estEsc(d.label), estNum(d.orders), estNum(d.qty), returCell(d.retur, d.retur_nilai), `<b>${estRupiah(d.estimasi)}</b>`],
       `class="order-row" style="cursor:pointer;${estimasiDay === d.date ? 'background:var(--bg-sunk);' : ''}" onclick="selectEstimasiDay('${d.date}')"`
     )).join('')}</tbody>${total('Total')}</table></div>`;
   }
@@ -2369,12 +2377,14 @@ async function loadEstimasiOrders() {
         const acuan = o.sku_acuan && o.sku_acuan.length ? ` <span class="badge badge-muted tag-inline" title="Harga dari price list (satuan x pcs), cuma acuan: ${estEsc(o.sku_acuan.join(', '))}">Harga acuan</span>` : '';
         const hasSplit = o.sku_split && /dari PKT/i.test(o.sku_split);
         const splitNote = hasSplit ? `<div class="hint" style="margin-top:2px;">Split: ${estEsc(o.sku_split)}</div>` : '';
-        return `<tr>
-          <td>${estEsc(o.no_pesanan)}${tag}${acuan}${warn}</td>
+        const returTag = o.retur ? ` <span class="badge badge-danger tag-inline" title="${estEsc('Retur' + (o.retur_alasan ? ': ' + o.retur_alasan : '') + (o.retur_kondisi === 'rusak' ? ' (barang rusak)' : ' (stok balik)'))}">RETUR</span>` : '';
+        const estCell = o.retur ? `<span class="est-strike">${estRupiah(o.retur_nilai)}</span> <b>Rp0</b>` : `<b>${estRupiah(o.estimasi)}</b>`;
+        return `<tr${o.retur ? ' class="row-retur"' : ''}>
+          <td>${estEsc(o.no_pesanan)}${returTag}${tag}${acuan}${warn}</td>
           <td>${estEsc(o.toko || '-')}</td>
           <td>${formatSkuChips(o.sku)}${splitNote}</td>
           <td style="text-align:right;">${estNum(o.jumlah)}</td>
-          <td style="text-align:right;"><b>${estRupiah(o.estimasi)}</b></td>
+          <td style="text-align:right;">${estCell}</td>
           <td style="text-align:center;"><button type="button" class="badge ${o.cs_input ? 'badge-ok' : 'badge-danger'}" style="border:0; cursor:pointer;" data-no="${estEsc(o.no_pesanan)}" data-done="${o.cs_input ? '1' : '0'}" title="Klik buat ubah status input CS" onclick="toggleCsInput(this)">${o.cs_input ? 'Sudah' : 'Belum'}</button></td>
         </tr>`;
       }).join('');

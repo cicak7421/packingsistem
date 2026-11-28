@@ -1,7 +1,8 @@
 // Flowmua LIVE: dashboard update sendiri tanpa reload.
 //  1. Tiap LIVE_SYNC_MS (2 menit) minta server cek batch kecil resi ke web kurir
 //     (POST /api/orders/live-sync). Kalau ada paket yang baru di-pickup / diterima,
-//     muncul notifikasi + feed "aktivitas kurir" dan tabel langsung diperbarui.
+//     muncul notifikasi + ringkasan "aktivitas kurir" (1 baris, klik buat lihat daftarnya)
+//     dan tabel langsung diperbarui.
 //  2. Tiap REFRESH_MS (45 detik) angka & tabel dashboard ditarik ulang diam-diam, jadi
 //     perubahan dari orang lain (scan packing, import, cron GitHub Actions) ikut kelihatan.
 // Semua berhenti otomatis saat tab browser tidak terlihat (hemat kuota & baterai).
@@ -12,7 +13,7 @@
 
   const LIVE_SYNC_MS = 120000;
   const REFRESH_MS = 45000;
-  const FEED_MAX = 5;
+  const LOG_MAX = 50; // riwayat aktivitas kurir yang disimpan selama halaman terbuka
   const PAUSE_KEY = 'flowmua_live_paused';
 
   const user = typeof getUser === 'function' ? getUser() : null;
@@ -24,6 +25,7 @@
   let lastSyncAt = null;
   let lastRefreshAt = Date.now();
   let bar, feed;
+  let log = []; // { no_resi, kurir, status, info, at } -- terbaru di depan
 
   const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const hhmm = (d) => d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -57,9 +59,13 @@
       <span class="live-meta">Sinkron kurir: <b data-live="sync">—</b> · Data: <b data-live="refresh">baru</b></span>
       <button type="button" data-live="now" title="Cek status kurir sekarang">Sync sekarang</button>
       <button type="button" data-live="toggle" title="Jeda / lanjutkan update otomatis"></button>`;
-    feed = document.createElement('div');
-    feed.className = 'live-feed';
-    feed.setAttribute('aria-live', 'polite');
+    // Aktivitas kurir: SATU baris ringkas (jumlah diterima / di-pickup + jam terakhir). Daftar
+    // lengkapnya baru muncul kalau diklik, jadi gak menuhin layar tiap ada update.
+    feed = document.createElement('details');
+    feed.className = 'live-log';
+    feed.hidden = true;
+    feed.innerHTML = '<summary><span class="live-log-title">Aktivitas kurir</span><span class="live-log-counts" aria-live="polite"></span><span class="live-log-last"></span><button type="button" class="live-log-clear" title="Kosongkan daftar aktivitas">Bersihkan</button></summary><div class="live-log-list"></div>';
+    feed.querySelector('.live-log-clear').onclick = (e) => { e.preventDefault(); log = []; feed.open = false; renderFeed(); };
     // Hero: judul + subjudul di kiri, status LIVE di kanan.
     const title = panel.querySelector('.page-title');
     const hero = document.createElement('div');
@@ -96,16 +102,30 @@
 
   function pushFeed(changes) {
     if (!feed || !changes.length) return;
-    const now = hhmm(new Date());
-    for (const c of changes.slice(0, FEED_MAX)) {
-      const el = document.createElement('div');
-      el.className = 'feed-item';
-      const label = c.status === 'diterima' ? '<span class="badge badge-ok">Diterima</span>' : '<span class="badge badge-warn">Di-pickup kurir</span>';
-      el.innerHTML = `${label}<code>${esc(c.no_resi)}</code><span class="hint">${esc(c.kurir || '')}</span><span class="feed-time">${now}</span>`;
-      el.title = c.info || '';
-      feed.prepend(el);
+    const at = Date.now();
+    for (const c of changes) {
+      log = log.filter((x) => x.no_resi !== c.no_resi); // resi yang sama cukup tampil sekali (status terbaru)
+      log.unshift({ no_resi: c.no_resi, kurir: c.kurir, status: c.status, info: c.info, at });
     }
-    while (feed.children.length > FEED_MAX) feed.lastChild.remove();
+    log = log.slice(0, LOG_MAX);
+    renderFeed();
+  }
+
+  function renderFeed() {
+    if (!feed) return;
+    feed.hidden = !log.length;
+    if (!log.length) return;
+    const delivered = log.filter((x) => x.status === 'diterima').length;
+    const picked = log.length - delivered;
+    const parts = [];
+    if (delivered) parts.push(`<span class="badge badge-ok">${delivered} diterima</span>`);
+    if (picked) parts.push(`<span class="badge badge-warn">${picked} di-pickup</span>`);
+    feed.querySelector('.live-log-counts').innerHTML = parts.join('');
+    feed.querySelector('.live-log-last').textContent = 'terakhir ' + hhmm(new Date(log[0].at));
+    feed.querySelector('.live-log-list').innerHTML = log.map((x) => {
+      const label = x.status === 'diterima' ? '<span class="badge badge-ok">Diterima</span>' : '<span class="badge badge-warn">Di-pickup</span>';
+      return `<div class="live-log-item" title="${esc(x.info || '')}">${label}<code>${esc(x.no_resi)}</code><span class="hint">${esc(x.kurir || '')}</span><span class="live-log-time">${hhmm(new Date(x.at))}</span></div>`;
+    }).join('');
   }
 
   // Tarik ulang angka + tabel tanpa efek loading yang berkedip.

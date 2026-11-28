@@ -3,6 +3,7 @@ const supabase = require('../supabase');
 const { requireAuth, requireRole } = require('../auth');
 const { splitSkuQty } = require('../skuHelpers');
 const { lineValue, splitBundleSku, AF_DEFAULT_POTONGAN_PERSEN, SKU_PRICE_EXACT, PKT50_PRICE_BY_SIZE } = require('../skuPrices');
+const { RETUR_COLS, returReady } = require('../returHelpers');
 
 const router = express.Router();
 
@@ -15,6 +16,8 @@ const router = express.Router();
 //     harga per SKU x qty dari tabel api/_lib/skuPrices.js, lalu DIKURANGI potongan (%)
 //     (bawaan 26%, bisa diubah dari tab Estimasi lewat query ?potongan=).
 //   - Pesanan affiliate (kiriman gratis/sample) TIDAK dihitung sebagai penghasilan.
+//   - Pesanan RETUR (orders.retur_at terisi, lihat routes/retur.js) dihitung Rp0; nilai yang
+//     hilang dicatat terpisah ("Nilai Retur") di layar & di export Excel.
 // Pengelompokan hari & bulan pakai kalender WIB (UTC+7), konsisten sama dashboard lain.
 // Periode, rekap harian/bulanan, daftar pesanan & export semuanya berdasarkan WAKTU PESANAN DIBUAT
 // (kolom waktu_pesanan_at, dari kolom "Waktu Pesanan Dibuat" di file Shopee). Kalau kolom itu kosong
@@ -231,6 +234,8 @@ const SELECT_COLS = 'no_pesanan, sku, jumlah, subtotal_pesanan, pelepasan_dana, 
 // (semua dianggap merah/belum) -- ringkasan & rekap gak pernah butuh kolom ini.
 const SELECT_COLS_LIST = SELECT_COLS + ', cs_input_done';
 const isCsColErr = (err) => /cs_input_done/i.test(String((err && err.message) || ''));
+// Kolom retur ikut diambil kalau migration-retur.sql sudah dijalankan (kalau belum: tidak ada retur).
+const withRetur = (cols, ok) => (ok ? cols + ', ' + RETUR_COLS : cols);
 
 function baseQuery(range, cols = SELECT_COLS) {
   return supabase
@@ -264,20 +269,24 @@ router.get('/summary', requireAuth, requireRole('admin', 'cs'), async (req, res)
   try { range = getRange(req); } catch (e) { return res.status(400).json({ error: e.message }); }
 
   const potongan = getPotongan(req, await loadConfig());
-  const days = new Map(); // 'YYYY-MM-DD' -> { orders, qty, estimasi }
-  let totalOrders = 0, totalQty = 0, totalEstimasi = 0, ordersTanpaHarga = 0;
+  const cols = withRetur(SELECT_COLS, await returReady());
+  const days = new Map(); // 'YYYY-MM-DD' -> { orders, qty, estimasi, retur, retur_nilai }
+  let totalOrders = 0, totalQty = 0, totalEstimasi = 0, ordersTanpaHarga = 0, totalRetur = 0, totalReturNilai = 0;
   const skuTanpaHarga = new Set();
 
   for (let off = 0; off < MAX_ROWS; off += PAGE_SIZE) {
-    const { data, error } = await baseQuery(range).range(off, off + PAGE_SIZE - 1);
+    const { data, error } = await baseQuery(range, cols).range(off, off + PAGE_SIZE - 1);
     if (error) return res.status(500).json({ error: 'Gagal mengambil data estimasi: ' + error.message });
     for (const o of data || []) {
       const e = estimateOrder(o, potongan);
       const day = orderDayStr(orderTime(o));
-      const d = days.get(day) || { orders: 0, qty: 0, estimasi: 0 };
-      d.orders += 1; d.qty += e.qty; d.estimasi += e.estimasi;
+      const d = days.get(day) || { orders: 0, qty: 0, estimasi: 0, retur: 0, retur_nilai: 0 };
+      const retur = !!o.retur_at;
+      const income = retur ? 0 : e.estimasi; // retur = tidak jadi penghasilan
+      d.orders += 1; d.qty += e.qty; d.estimasi += income;
+      if (retur) { d.retur += 1; d.retur_nilai += e.estimasi; totalRetur += 1; totalReturNilai += e.estimasi; }
       days.set(day, d);
-      totalOrders += 1; totalQty += e.qty; totalEstimasi += e.estimasi;
+      totalOrders += 1; totalQty += e.qty; totalEstimasi += income;
       if (e.sku_tanpa_harga.length) { ordersTanpaHarga += 1; e.sku_tanpa_harga.forEach((s) => skuTanpaHarga.add(s)); }
     }
     if (!data || data.length < PAGE_SIZE) break;
@@ -289,8 +298,8 @@ router.get('/summary', requireAuth, requireRole('admin', 'cs'), async (req, res)
   const months = new Map();
   for (const d of dayList) {
     const ym = d.date.slice(0, 7);
-    const m = months.get(ym) || { orders: 0, qty: 0, estimasi: 0 };
-    m.orders += d.orders; m.qty += d.qty; m.estimasi += d.estimasi;
+    const m = months.get(ym) || { orders: 0, qty: 0, estimasi: 0, retur: 0, retur_nilai: 0 };
+    m.orders += d.orders; m.qty += d.qty; m.estimasi += d.estimasi; m.retur += d.retur; m.retur_nilai += d.retur_nilai;
     months.set(ym, m);
   }
   const monthList = [...months.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1))
@@ -302,6 +311,8 @@ router.get('/summary', requireAuth, requireRole('admin', 'cs'), async (req, res)
     total_orders: totalOrders,
     total_qty: totalQty,
     total_estimasi: totalEstimasi,
+    total_retur: totalRetur,
+    total_retur_nilai: totalReturNilai,
     orders_tanpa_harga: ordersTanpaHarga,
     sku_tanpa_harga: [...skuTanpaHarga].sort(),
     days: dayList,
@@ -328,10 +339,11 @@ router.get('/orders', requireAuth, requireRole('admin', 'cs'), async (req, res) 
     .or(inRangeFilter(range));
 
   let csReady = true;
-  let [{ count, error: cErr }, { data, error }] = await Promise.all([countQ, baseQuery(range, SELECT_COLS_LIST).range(fromIdx, fromIdx + limit - 1)]);
+  const returOk = await returReady();
+  let [{ count, error: cErr }, { data, error }] = await Promise.all([countQ, baseQuery(range, withRetur(SELECT_COLS_LIST, returOk)).range(fromIdx, fromIdx + limit - 1)]);
   if (error && isCsColErr(error)) {
     csReady = false; // migration belum dijalankan -> tampilkan daftar tanpa status input CS
-    ({ data, error } = await baseQuery(range, SELECT_COLS).range(fromIdx, fromIdx + limit - 1));
+    ({ data, error } = await baseQuery(range, withRetur(SELECT_COLS, returOk)).range(fromIdx, fromIdx + limit - 1));
   }
   if (cErr || error) return res.status(500).json({ error: 'Gagal mengambil daftar pesanan: ' + (cErr || error).message });
 
@@ -343,7 +355,11 @@ router.get('/orders', requireAuth, requireRole('admin', 'cs'), async (req, res) 
       sku: o.sku || '',
       sku_split: splitLabel(parseItems(o)),
       jumlah: e.qty,
-      estimasi: e.estimasi,
+      estimasi: o.retur_at ? 0 : e.estimasi,
+      retur: !!o.retur_at,
+      retur_nilai: o.retur_at ? e.estimasi : 0,
+      retur_kondisi: o.retur_kondisi || null,
+      retur_alasan: o.retur_alasan || null,
       sumber: e.sumber,
       bruto: e.bruto ?? null,
       potongan: e.sumber === 'harga_sku' ? e.potongan : null,
@@ -354,7 +370,7 @@ router.get('/orders', requireAuth, requireRole('admin', 'cs'), async (req, res) 
     };
   });
 
-  res.json({ orders, page, limit, total: count || 0, total_pages: Math.max(1, Math.ceil((count || 0) / limit)), cs_input_ready: csReady });
+  res.json({ orders, page, limit, total: count || 0, total_pages: Math.max(1, Math.ceil((count || 0) / limit)), cs_input_ready: csReady, retur_ready: returOk });
 });
 
 // ---- Konfigurasi: potongan advance shipment & harga per SKU ----
@@ -428,6 +444,9 @@ router.patch('/cs-input', requireAuth, requireRole('admin', 'cs'), async (req, r
 // Satu baris = satu SKU dalam pesanan (pesanan multi-SKU jadi beberapa baris); "Shopee Estimated
 // Order Income" per PESANAN, jadi diisi di baris pertama pesanan saja (biar total tidak dobel).
 // Periode, tanggal & urutan semuanya pakai WAKTU PESANAN DIBUAT (cadangan: tanggal import), sama seperti angka di layar.
+// Pesanan RETUR: kolom Income diisi 0 (jadi total otomatis bersih), kolom "Status" = RETUR dan
+// "Retur Amount" = nilai yang hilang; barisnya diwarnai merah muda. Daily Summary dapat kolom
+// jumlah & nilai retur per hari, dan ada sheet "Retur" berisi daftar semua pesanan retur.
 // Query: preset/from/to/potongan (sama seperti /summary), sort:
 //   toko    (bawaan) -> urut nama toko A-Z, di dalam toko dari pesanan terlama ke terbaru
 //   terlama           -> urut tanggal pesanan terlama dulu
@@ -435,10 +454,16 @@ router.patch('/cs-input', requireAuth, requireRole('admin', 'cs'), async (req, r
 const EXPORT_HEAD = [
   'Order Date 日期', 'Order No. 订单号', 'Store 商店 ', 'SKU 商品编码', 'Quantity 数量',
   'Unit Price 单价', 'Line Total 行金额', 'Shopee Estimated Order Income 预计订单收入',
+  'Status 状态', 'Retur Amount 退货金额',
+];
+const RETUR_HEAD = [
+  'Order Date 日期', 'Retur Date 退货日期', 'Order No. 订单号', 'Store 商店', 'SKU 商品编码', 'Quantity 数量',
+  'Condition 状况', 'Reason 原因', 'Retur Amount 退货金额',
 ];
 const SUMMARY_HEAD = [
   'Date 日期', 'Orders 订单数', 'Total Quantity 总数量',
   'Total GMV', 'Shopee Estimated Order Income 预计订单收入合计',
+  'Retur Orders 退货订单数', 'Retur Amount 退货金额',
 ];
 const EXPORT_MAX_RANGE_DAYS = 31; // sama kayak menu Export Data
 const RP_FMT = '"Rp" #,##0;[Red]-"Rp" #,##0';
@@ -465,11 +490,14 @@ router.get('/export', requireAuth, requireRole('admin', 'cs'), async (req, res) 
   const sort = ['toko', 'terlama', 'terbaru'].includes(req.query.sort) ? req.query.sort : 'toko';
 
   const all = [];
-  let cols = SELECT_COLS_LIST;
+  const returOk = await returReady();
+  let csCols = true;
+  let cols = withRetur(SELECT_COLS_LIST, returOk);
   for (let off = 0; off < MAX_ROWS; off += PAGE_SIZE) {
     let { data, error } = await baseQuery(range, cols).range(off, off + PAGE_SIZE - 1);
-    if (error && cols === SELECT_COLS_LIST && isCsColErr(error)) {
-      cols = SELECT_COLS; // migration belum dijalankan -> semua dianggap belum diinput
+    if (error && csCols && isCsColErr(error)) {
+      csCols = false;
+      cols = withRetur(SELECT_COLS, returOk); // migration belum dijalankan -> semua dianggap belum diinput
       ({ data, error } = await baseQuery(range, cols).range(off, off + PAGE_SIZE - 1));
     }
     if (error) return res.status(500).json({ error: 'Gagal mengambil data untuk export: ' + error.message });
@@ -502,14 +530,20 @@ router.get('/export', requireAuth, requireRole('admin', 'cs'), async (req, res) 
 
   // Pecah jadi baris per SKU.
   const lines = [];
-  const perDay = new Map(); // tanggal -> { orders, lines, qty, total, income }
+  const perDay = new Map(); // tanggal -> { orders, lines, qty, total, income, retur, returAmount }
+  const returRows = []; // daftar pesanan retur buat sheet "Retur"
   for (const { o, e } of items) {
     const day = orderTime(o) ? orderDayStr(orderTime(o)) : '-';
     const skuItems = parseItems(o);
     const rows = skuItems.length ? skuItems : [{ sku: '', qty: null }];
-    const d = perDay.get(day) || { orders: 0, lines: 0, qty: 0, total: 0, income: 0 };
+    const d = perDay.get(day) || { orders: 0, lines: 0, qty: 0, total: 0, income: 0, retur: 0, returAmount: 0 };
+    const retur = !!o.retur_at;
     d.orders += 1;
-    d.income += e.estimasi;
+    if (retur) {
+      d.retur += 1;
+      d.returAmount += e.estimasi;
+      returRows.push({ day, returDay: wibDateStr(o.retur_at), no: o.no_pesanan, toko: tokoName(o) || '-', sku: splitLabel(skuItems) || o.sku || '', qty: e.qty, kondisi: o.retur_kondisi === 'rusak' ? 'Rusak' : 'Bagus (stok balik)', alasan: o.retur_alasan || '', amount: e.estimasi });
+    } else d.income += e.estimasi;
     // Harga satuan: kalau pesanan punya total harga (subtotal_pesanan) -> total / jumlah barang
     // (rata-rata kalau pesanannya multi-SKU, karena harga per SKU gak disimpen); kalau gak ada
     // (advance fulfilment) -> harga dari tabel SKU (skuPrices.js), kosong kalau SKU belum terdaftar.
@@ -532,7 +566,9 @@ router.get('/export', requireAuth, requireRole('admin', 'cs'), async (req, res) 
         qty: it.qty,
         price,
         lineTotal,
-        income: idx === 0 ? e.estimasi : null,
+        income: idx === 0 ? (retur ? 0 : e.estimasi) : null,
+        retur,
+        returAmount: retur && idx === 0 ? e.estimasi : null,
       });
       d.lines += 1;
       d.qty += it.qty || 0;
@@ -548,7 +584,7 @@ router.get('/export', requireAuth, requireRole('admin', 'cs'), async (req, res) 
 
   function addLineSheet(name, subset, asDate) {
     const ws = wb.addWorksheet(name);
-    ws.columns = [14, 24, 24, 24, 12, 14, 18, 30].map((width) => ({ width }));
+    ws.columns = [14, 24, 24, 24, 12, 14, 18, 30, 12, 20].map((width) => ({ width }));
     styleHeader(ws.addRow(EXPORT_HEAD), 'FF1F4E78', 48);
     subset.forEach((l, i) => {
       const r = i + 2;
@@ -557,17 +593,25 @@ router.get('/export', requireAuth, requireRole('admin', 'cs'), async (req, res) 
         l.no, l.toko, l.sku, l.qty, l.price,
         { formula: `IF(OR(E${r}="",F${r}=""),"",E${r}*F${r})`, result: l.lineTotal === null ? '' : l.lineTotal },
         l.income,
+        l.retur ? 'RETUR' : null,
+        l.returAmount,
       ]);
       row.getCell(1).numFmt = asDate ? 'yyyy-mm-dd' : '@';
       row.getCell(5).numFmt = '#,##0';
       row.getCell(6).numFmt = '#,##0';
       row.getCell(7).numFmt = RP_FMT;
       row.getCell(8).numFmt = RP_FMT;
+      row.getCell(10).numFmt = RP_FMT;
+      row.getCell(9).alignment = { horizontal: 'center' };
       if (asDate) for (let c = 5; c <= 8; c++) row.getCell(c).alignment = { horizontal: 'center' };
       row.eachCell({ includeEmpty: true }, (c) => { c.font = { name: 'Calibri', size: 11 }; });
+      if (l.retur) {
+        for (let c = 1; c <= 10; c++) row.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFDE2E1' } };
+        row.getCell(9).font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFC00000' } };
+      }
     });
     ws.views = [{ state: 'frozen', ySplit: 1 }];
-    if (asDate && subset.length) ws.autoFilter = { from: 'A1', to: { row: subset.length + 1, column: 8 } };
+    if (asDate && subset.length) ws.autoFilter = { from: 'A1', to: { row: subset.length + 1, column: 10 } };
     return ws;
   }
 
@@ -575,7 +619,7 @@ router.get('/export', requireAuth, requireRole('admin', 'cs'), async (req, res) 
   for (const day of days) addLineSheet(day, lines.filter((l) => l.day === day), false);
 
   const sum = wb.addWorksheet('Daily Summary');
-  sum.columns = [14, 11, 16, 22, 38].map((width) => ({ width }));
+  sum.columns = [14, 11, 16, 22, 38, 16, 22].map((width) => ({ width }));
   styleHeader(sum.addRow(SUMMARY_HEAD), 'FF548235', 46);
   days.forEach((day, i) => {
     const d = perDay.get(day);
@@ -586,15 +630,51 @@ router.get('/export', requireAuth, requireRole('admin', 'cs'), async (req, res) 
       { formula: `SUM(${q}!E:E)`, result: d.qty },
       { formula: `SUM(${q}!G:G)`, result: d.total },
       { formula: `SUM(${q}!H:H)`, result: d.income },
+      { formula: `COUNTIF(${q}!I:I,"RETUR")`, result: d.retur },
+      { formula: `SUM(${q}!J:J)`, result: d.returAmount },
     ]);
     row.getCell(1).numFmt = '@';
     for (let c = 2; c <= 3; c++) row.getCell(c).numFmt = '#,##0';
     row.getCell(4).numFmt = RP_FMT;
     row.getCell(5).numFmt = RP_FMT;
-    for (let c = 2; c <= 5; c++) row.getCell(c).alignment = { horizontal: 'center' };
+    row.getCell(6).numFmt = '#,##0';
+    row.getCell(7).numFmt = RP_FMT;
+    for (let c = 2; c <= 7; c++) row.getCell(c).alignment = { horizontal: 'center' };
     row.eachCell({ includeEmpty: true }, (c) => { c.font = { name: 'Calibri', size: 11 }; });
   });
+  if (days.length) {
+    const last = days.length + 1;
+    const tot = sum.addRow(['TOTAL', ...['B', 'C', 'D', 'E', 'F', 'G'].map((col, i) => ({
+      formula: `SUM(${col}2:${col}${last})`,
+      result: days.reduce((s, day) => { const d = perDay.get(day); return s + [d.orders, d.qty, d.total, d.income, d.retur, d.returAmount][i]; }, 0),
+    }))]);
+    [2, 3, 6].forEach((c) => { tot.getCell(c).numFmt = '#,##0'; });
+    [4, 5, 7].forEach((c) => { tot.getCell(c).numFmt = RP_FMT; });
+    tot.eachCell({ includeEmpty: true }, (c) => { c.font = { name: 'Calibri', size: 11, bold: true }; c.alignment = { horizontal: 'center' }; c.border = { top: { style: 'thin' } }; });
+  }
   sum.views = [{ state: 'frozen', ySplit: 1 }];
+
+  // Sheet "Retur": semua pesanan retur di periode ini (kosong kalau tidak ada).
+  const rs = wb.addWorksheet('Retur');
+  rs.columns = [14, 14, 24, 24, 34, 12, 20, 34, 22].map((width) => ({ width }));
+  styleHeader(rs.addRow(RETUR_HEAD), 'FFC00000', 46);
+  returRows.sort((a, b) => (a.returDay < b.returDay ? -1 : a.returDay > b.returDay ? 1 : 0));
+  for (const r of returRows) {
+    const row = rs.addRow([r.day, r.returDay, r.no, r.toko, r.sku, r.qty, r.kondisi, r.alasan, r.amount]);
+    row.getCell(6).numFmt = '#,##0';
+    row.getCell(9).numFmt = RP_FMT;
+    row.eachCell({ includeEmpty: true }, (c) => { c.font = { name: 'Calibri', size: 11 }; });
+  }
+  if (returRows.length) {
+    const last = returRows.length + 1;
+    const tot = rs.addRow(['TOTAL', null, { formula: `COUNTA(C2:C${last})`, result: returRows.length }, null, null, { formula: `SUM(F2:F${last})`, result: returRows.reduce((s, r) => s + r.qty, 0) }, null, null, { formula: `SUM(I2:I${last})`, result: returRows.reduce((s, r) => s + r.amount, 0) }]);
+    tot.getCell(9).numFmt = RP_FMT;
+    tot.eachCell({ includeEmpty: true }, (c) => { c.font = { name: 'Calibri', size: 11, bold: true }; c.border = { top: { style: 'thin' } }; });
+    rs.autoFilter = { from: 'A1', to: { row: last, column: 9 } };
+  } else {
+    rs.addRow(['Tidak ada pesanan retur di periode ini.']);
+  }
+  rs.views = [{ state: 'frozen', ySplit: 1 }];
 
   const buffer = Buffer.from(await wb.xlsx.writeBuffer());
   const filename = `Report_Daily_Order_${range.from}_sd_${range.to}.xlsx`;
@@ -607,3 +687,4 @@ router.get('/export', requireAuth, requireRole('admin', 'cs'), async (req, res) 
 module.exports = router;
 module.exports.estimateOrder = estimateOrder;
 module.exports.parseMoney = parseMoney;
+module.exports.loadConfig = loadConfig;

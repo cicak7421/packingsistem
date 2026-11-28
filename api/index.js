@@ -13,6 +13,7 @@ const estimasiRoutes = require('./_lib/routes/estimasi');
 const inventoryRoutes = require('./_lib/routes/inventory');
 const inventoryImportRoutes = require('./_lib/routes/inventoryImport');
 const cekPesananRoutes = require('./_lib/routes/cekPesanan');
+const returRoutes = require('./_lib/routes/retur');
 
 const { invalidateLateCount } = require('./_lib/lateHelpers');
 
@@ -40,6 +41,7 @@ app.use('/api/cron', cronRoutes);
 app.use('/api/affiliate', affiliateRoutes);
 app.use('/api/estimasi', estimasiRoutes);
 app.use('/api/cek-pesanan', cekPesananRoutes);
+app.use('/api/retur', returRoutes);
 // Import stok massal dari Excel -- HARUS didaftarkan sebelum '/api/inventory' biar path-nya kebaca duluan.
 app.use('/api/inventory/import-stock', inventoryImportRoutes);
 app.use('/api/inventory', inventoryRoutes);

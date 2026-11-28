@@ -1517,14 +1517,43 @@ tbody tr.order-row:not(.row-late):not(.row-critical):hover > td:first-child { bo
 .live-bar button { height: 28px; padding: 0 10px; font: 500 11.5px var(--font-mono); border-radius: 8px; border: 1px solid var(--border-strong); background: var(--card-2); color: var(--text); cursor: pointer; }
 .live-bar button:hover { border-color: var(--primary); color: var(--primary-dark); }
 .live-bar button:disabled { opacity: .5; cursor: default; }
-.live-feed { display: flex; flex-direction: column; gap: 6px; margin: -8px 0 18px; }
-.live-feed:empty { display: none; }
-.live-feed .feed-item {
-  display: flex; gap: 10px; align-items: center; padding: 8px 12px; border-radius: 10px; font-size: 12.5px;
-  border: 1px solid var(--border); background: var(--card-2); animation: riseIn .4s var(--ease) both;
-}
-.live-feed .feed-item code { font-family: var(--font-mono); font-size: 12px; color: var(--text); }
-.live-feed .feed-item .feed-time { margin-left: auto; color: var(--muted-soft); font-family: var(--font-mono); font-size: 11px; white-space: nowrap; }
+/* Aktivitas kurir: 1 baris ringkas, daftar lengkap muncul kalau diklik */
+.live-log { margin: -8px 0 18px; border: 1px solid var(--border); border-radius: 10px; background: var(--card-2); font-size: 12.5px; }
+.live-log[hidden] { display: none; }
+.live-log > summary { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; cursor: pointer; list-style: none; user-select: none; }
+.live-log > summary::-webkit-details-marker { display: none; }
+.live-log > summary::before { content: "\25B8"; color: var(--muted); transition: transform .15s; }
+.live-log[open] > summary::before { transform: rotate(90deg); }
+.live-log-title { font: 600 12px var(--font-mono); color: var(--text); }
+.live-log-counts { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.live-log-last { margin-left: auto; color: var(--muted-soft); font: 500 11px var(--font-mono); white-space: nowrap; }
+.live-log-clear { height: 24px; padding: 0 8px; font: 500 11px var(--font-mono); border-radius: 6px; border: 1px solid var(--border-strong); background: transparent; color: var(--muted); cursor: pointer; }
+.live-log-clear:hover { color: var(--text); border-color: var(--primary); }
+.live-log-list { max-height: 216px; overflow-y: auto; border-top: 1px solid var(--border); padding: 4px 12px; }
+.live-log-item { display: flex; gap: 10px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.live-log-item:last-child { border-bottom: none; }
+.live-log-item code { font-family: var(--font-mono); font-size: 12px; color: var(--text); }
+.live-log-time { margin-left: auto; color: var(--muted-soft); font-family: var(--font-mono); font-size: 11px; white-space: nowrap; }
+
+/* Retur: saklar mode di Scan Packing + pilihan kondisi */
+.mode-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 5px; margin-bottom: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-sunk); }
+.mode-switch button { height: 44px; border: 0; border-radius: 9px; background: transparent; color: var(--muted); font: 600 14px var(--font-sans, inherit); cursor: pointer; }
+.mode-switch button.active { background: var(--primary); color: #fff; }
+.mode-switch button[data-mode="retur"].active { background: var(--danger); }
+.retur-banner { display: none; padding: 10px 14px; margin-bottom: 14px; border-radius: 10px; border: 1px solid var(--danger-line); background: var(--danger-soft); color: var(--danger); font-weight: 600; font-size: 13.5px; }
+body.mode-retur .retur-banner { display: block; }
+body.mode-retur #scanCard { border-color: var(--danger); }
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+.seg button { min-height: 48px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border-strong); background: var(--card-2); color: var(--text); font-weight: 600; font-size: 13.5px; cursor: pointer; }
+.seg button small { display: block; font-weight: 400; color: var(--muted); font-size: 11.5px; }
+.seg button.active { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-ring, transparent); }
+.seg button[data-kondisi="rusak"].active { border-color: var(--danger); }
+.retur-form { display: grid; grid-template-columns: 2fr 1fr 2fr; gap: 12px; align-items: end; }
+.retur-form label { margin-bottom: 4px; }
+.retur-form input, .retur-form select { margin-bottom: 0; }
+@media (max-width: 760px) { .retur-form { grid-template-columns: 1fr; } }
+tr.row-retur td { background: color-mix(in srgb, var(--danger) 7%, transparent); }
+.est-strike { text-decoration: line-through; color: var(--muted); font-weight: 400; }
 @media (max-width: 640px) { .live-meta { width: 100%; } }
 @media (prefers-reduced-motion: reduce) { .live-dot::after { animation: none; } }
 #pendingTable.live-refresh, #pendingTable.live-refresh.is-loading { opacity: 1; filter: none; }

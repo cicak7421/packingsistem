@@ -4,6 +4,37 @@ if (user) renderAppShell('packing');
 let scanning = true;
 let html5QrCode;
 
+// ---------- Mode scan: 'packing' (bawaan) atau 'retur' (paket balik ke gudang) ----------
+// Sengaja TIDAK diingat antar kunjungan: tiap buka halaman selalu mulai dari Packing, supaya
+// gak ada paket yang kecatat retur gara-gara mode kemarin masih nyangkut.
+let scanMode = 'packing';
+let returKondisi = 'bagus';
+const RETUR_ALASAN_FALLBACK = ['Gagal kirim / alamat tidak ditemukan', 'Pembeli menolak / tidak di tempat', 'Pembeli ajukan pengembalian', 'Barang rusak / cacat', 'Salah kirim barang', 'Lainnya'];
+
+function fillReturAlasan(list) {
+  const sel = document.getElementById('returAlasanSelect');
+  if (!sel) return;
+  const keep = sel.value;
+  sel.innerHTML = list.map((a) => `<option>${escHtml(a)}</option>`).join('');
+  if (keep && list.includes(keep)) sel.value = keep;
+}
+
+function setScanMode(mode) {
+  scanMode = mode === 'retur' ? 'retur' : 'packing';
+  document.body.classList.toggle('mode-retur', scanMode === 'retur');
+  document.querySelectorAll('#modeSwitch button').forEach((b) => b.classList.toggle('active', b.dataset.mode === scanMode));
+  document.getElementById('returOptions').style.display = scanMode === 'retur' ? 'block' : 'none';
+  document.getElementById('historyTitle').textContent = scanMode === 'retur' ? 'Riwayat retur hari ini' : 'Riwayat scan hari ini';
+  document.getElementById('resultArea').innerHTML = '';
+  setScanStatus(scanMode === 'retur' ? 'Siap scan paket RETUR...' : 'Siap scan...');
+  loadHistory();
+}
+
+function setReturKondisi(k) {
+  returKondisi = k === 'rusak' ? 'rusak' : 'bagus';
+  document.querySelectorAll('#returKondisiSeg button').forEach((b) => b.classList.toggle('active', b.dataset.kondisi === returKondisi));
+}
+
 function toggleManual() {
   const el = document.getElementById('manualInput');
   el.style.display = el.style.display === 'none' ? 'block' : 'none';
@@ -144,6 +175,7 @@ async function submitScan(value) {
   value = (value || '').trim();
   if (!value) { scanning = true; return; }
   setScanStatus('Memproses...');
+  if (scanMode === 'retur') return submitRetur(value);
   try {
     const data = await api('/packing/scan', { method: 'POST', body: JSON.stringify({ value }) });
     if (navigator.vibrate) navigator.vibrate(90);
@@ -164,13 +196,33 @@ async function submitScan(value) {
   }, cooldown);
 }
 
+// Mode Retur: catat paket balik. Kondisi & alasan diambil dari pilihan di atas kamera.
+async function submitRetur(value) {
+  try {
+    const alasan = document.getElementById('returAlasanSelect').value;
+    const data = await api('/retur/scan', { method: 'POST', body: JSON.stringify({ value, kondisi: returKondisi, alasan }) });
+    feedback(true);
+    renderResult('ok', data.message, data.order, null, 'retur');
+  } catch (e) {
+    feedback(false);
+    renderResult(e.status || 'danger', e.message, e.data?.order);
+  }
+  const manualEl = document.getElementById('manualValue');
+  if (manualEl) manualEl.value = '';
+  loadHistory();
+  setTimeout(() => {
+    scanning = true;
+    setScanStatus(scanMode === 'retur' ? 'Siap scan paket RETUR berikutnya...' : 'Siap scan berikutnya...');
+  }, 900);
+}
+
 function escHtml(t) {
   return String(t == null ? '' : t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-function renderResult(status, message, order, speech) {
+function renderResult(status, message, order, speech, kind) {
   const area = document.getElementById('resultArea');
-  let cls = 'result-ok', icon = '✅';
+  let cls = 'result-ok', icon = kind === 'retur' ? '↩️' : '✅';
   if (status !== 'ok') { cls = 'result-danger'; icon = '⚠️'; }
   // Paket telat (umur pesanan lewat batas kirim): kotak hasil jadi kuning-merah + peringatan jelas
   // supaya packer tahu paket ini harus ikut dikirim hari ini.
@@ -188,9 +240,39 @@ function renderResult(status, message, order, speech) {
   `;
 }
 
+async function loadReturHistory() {
+  const list = document.getElementById('historyList');
+  try {
+    const data = await api('/retur/my-today');
+    if (scanMode !== 'retur') return;
+    document.getElementById('todayCount').textContent = data.returs.length;
+    if (data.ready === false) {
+      list.innerHTML = '<div class="empty-state">Fitur retur belum aktif: admin perlu menjalankan migration-retur.sql di Supabase dulu.</div>';
+      return;
+    }
+    if (!data.returs.length) {
+      list.innerHTML = '<div class="empty-state">Belum ada retur hari ini</div>';
+      return;
+    }
+    list.innerHTML = data.returs.slice(0, 15).map((r) => {
+      const rusak = r.retur_kondisi === 'rusak';
+      const time = new Date(r.retur_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+      return `<div class="history-item">
+        <div class="row">
+          <span>${escHtml(r.no_resi || r.no_pesanan)}</span>
+          <span class="badge ${rusak ? 'badge-danger' : 'badge-ok'}">${rusak ? 'Rusak' : 'Bagus'}</span>
+        </div>
+        <div class="time">${time}${r.retur_alasan ? ' · ' + escHtml(r.retur_alasan) : ''}</div>
+      </div>`;
+    }).join('');
+  } catch (e) { /* diamkan */ }
+}
+
 async function loadHistory() {
+  if (scanMode === 'retur') return loadReturHistory();
   try {
     const data = await api('/packing/my-scans-today');
+    if (scanMode !== 'packing') return;
     document.getElementById('todayCount').textContent = data.scans.filter((s) => s.result === 'ok').length;
     const list = document.getElementById('historyList');
     if (data.scans.length === 0) {
@@ -298,6 +380,7 @@ document.getElementById('manualValue')?.addEventListener('keydown', (e) => {
 });
 
 if (user) {
+  fillReturAlasan(RETUR_ALASAN_FALLBACK);
   startScanner();
   loadHistory();
 }

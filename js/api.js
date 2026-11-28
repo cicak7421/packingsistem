@@ -214,6 +214,7 @@ const NAV_ITEMS = [
   { key: 'kirim-pesanan', label: 'Kirim Pesanan', href: '/dashboard.html?tab=kirim-pesanan', roles: ['admin'], group: 1, icon: 'send' },
   { key: 'cek-status', label: 'Tracking', href: '/dashboard.html?tab=cek-status', roles: ['admin', 'cs'], group: 1, icon: 'pin' },
   { key: 'cek-pesanan', label: 'Cek & Validasi', href: '/cek-pesanan.html', roles: ['admin', 'cs', 'inventory'], group: 1, icon: 'check' },
+  { key: 'retur', label: 'Retur', href: '/dashboard.html?tab=retur', roles: ['admin', 'cs'], group: 1, icon: 'undo' },
   { key: 'export', label: 'Export Data', href: '/dashboard.html?tab=export', roles: ['admin', 'cs'], group: 2, icon: 'download' },
   { key: 'performance', label: 'Performa Packing', href: '/dashboard.html?tab=performance', roles: ['admin', 'cs'], group: 2, icon: 'chart' },
   { key: 'affiliate', label: 'Affiliate', href: '/dashboard.html?tab=affiliate', roles: ['admin', 'cs'], group: 2, icon: 'users' },
@@ -239,6 +240,7 @@ const NAV_ICONS = {
   logout: '<path d="M9 21H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
   check: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4h6v3H9z"/><path d="m9 14 2 2 4-4"/>',
   chevron: '<path d="m15 6-6 6 6 6"/>',
+  undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
   pack: '<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5"/><path d="M12 13v8"/><path d="m7.5 5.5 9 5"/>',
 };
 
