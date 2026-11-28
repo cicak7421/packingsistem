@@ -82,7 +82,9 @@ router.post('/scan', requireAuth, requireRole('packing', 'admin', 'cs'), async (
   if (updErr) return res.status(500).json({ error: isReturColErr(updErr) ? RETUR_MISSING_MSG : 'Gagal mencatat retur: ' + updErr.message });
   if (!updated) return res.status(409).json({ status: 'sudah_retur', message: 'Paket ini baru saja dicatat retur oleh akun lain.', order: view(order) });
 
-  const message = `Retur dicatat: ${kondisi === 'sesuai' ? 'SESUAI' : 'TIDAK SESUAI'}. Menunggu validasi admin/CS — stok belum berubah.`;
+  // Scan dari halaman packing tidak mengirim kondisi (packer tidak memilih apa pun) -> pesan netral.
+  const hasil = body.kondisi ? `: ${kondisi === 'sesuai' ? 'SESUAI' : 'TIDAK SESUAI'}` : '';
+  const message = `Retur dicatat${hasil}. Menunggu validasi admin/CS — stok belum berubah.`;
   res.json({ status: 'ok', message, order: { ...view(updated), retur_by_name: req.user.full_name } });
 });
 
