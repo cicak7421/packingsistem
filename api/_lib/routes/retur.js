@@ -178,6 +178,102 @@ router.get('/', requireAuth, requireRole('admin', 'cs'), async (req, res) => {
   });
 });
 
+// Export daftar retur ke Excel (admin/CS). Query: from, to, q -- sama seperti daftar di atas, jadi
+// isi file = persis yang lagi tampil di tab Retur (semua halaman, bukan cuma 50 baris pertama).
+router.get('/export', requireAuth, requireRole('admin', 'cs'), async (req, res) => {
+  const today = wibDate(Date.now());
+  const from = DATE_RE.test(String(req.query.from || '')) ? req.query.from : addDays(today, -29);
+  const to = DATE_RE.test(String(req.query.to || '')) ? req.query.to : today;
+  if (from > to) return res.status(400).json({ error: 'Tanggal awal tidak boleh setelah tanggal akhir' });
+  const q = cleanResi(req.query.q).replace(/[,()"\\%*]/g, '').slice(0, 60);
+
+  const all = [];
+  for (let off = 0; off < 20000; off += 1000) {
+    let query = supabase.from('orders').select('*').not('retur_at', 'is', null)
+      .gte('retur_at', wibStartUTC(from)).lt('retur_at', wibStartUTC(addDays(to, 1)));
+    if (q) query = query.or(`no_resi.ilike.%${q}%,no_pesanan.ilike.%${q}%`);
+    const { data, error } = await query.order('retur_at', { ascending: true }).order('id', { ascending: true }).range(off, off + 999);
+    if (error) return res.status(500).json({ error: isReturColErr(error) ? RETUR_MISSING_MSG : 'Gagal mengambil data retur: ' + error.message });
+    all.push(...(data || []));
+    if (!data || data.length < 1000) break;
+  }
+
+  const userIds = [...new Set(all.flatMap((o) => [o.retur_by, o.retur_validated_by]).filter(Boolean))];
+  let names = {};
+  if (userIds.length) {
+    const { data: users } = await supabase.from('users').select('id, full_name').in('id', userIds);
+    names = Object.fromEntries((users || []).map((u) => [u.id, u.full_name]));
+  }
+  const cfg = await estimasi.loadConfig();
+  const potongan = cfg.potongan !== null ? cfg.potongan : AF_DEFAULT_POTONGAN_PERSEN;
+  const wibDateTime = (ts) => (ts ? new Date(new Date(ts).getTime() + WIB_OFFSET_MS).toISOString().slice(0, 16).replace('T', ' ') : '');
+
+  const ExcelJS = require('exceljs'); // lazy: cuma dibutuhkan waktu export
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Flowmua';
+  const ws = wb.addWorksheet('Retur');
+  const HEAD = ['Waktu Retur (WIB)', 'Tanggal Pesanan', 'No. Pesanan', 'No. Resi', 'Toko', 'Platform', 'Jasa Kirim', 'SKU', 'Jumlah',
+    'Status Validasi', 'Hasil', 'Alasan', 'Catatan', 'Dicatat Oleh', 'Divalidasi Oleh', 'Waktu Validasi (WIB)', 'Nilai Retur'];
+  ws.columns = [18, 14, 24, 22, 22, 12, 18, 30, 9, 18, 14, 34, 30, 18, 18, 18, 18].map((width) => ({ width }));
+  const head = ws.addRow(HEAD);
+  head.height = 30;
+  head.eachCell((c) => {
+    c.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC00000' } };
+    c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+  });
+  const RP = '"Rp" #,##0';
+  const count = { menunggu: 0, sesuai: 0, tidak_sesuai: 0 };
+  let totalNilai = 0;
+  for (const o of all) {
+    const nilai = o.is_affiliate ? 0 : estimasi.estimateOrder(o, potongan).estimasi;
+    const kondisi = normKondisi(o.retur_kondisi);
+    const validated = !!o.retur_validated_at;
+    count[validated ? kondisi : 'menunggu'] += 1;
+    totalNilai += nilai;
+    const orderTs = o.waktu_pesanan_at || o.imported_at;
+    const row = ws.addRow([
+      wibDateTime(o.retur_at), orderTs ? wibDate(orderTs) : '', o.no_pesanan, o.no_resi || '', o.toko || '', o.platform || '', o.opsi_pengiriman || '',
+      o.sku || '', parseInt(String(o.jumlah || '').trim(), 10) || null,
+      validated ? 'Sudah divalidasi' : 'Menunggu validasi',
+      kondisi === 'tidak_sesuai' ? 'Tidak sesuai' : validated ? 'Sesuai (stok masuk)' : 'Sesuai',
+      o.retur_alasan || '', o.retur_catatan || '', names[o.retur_by] || '', names[o.retur_validated_by] || '', wibDateTime(o.retur_validated_at), nilai,
+    ]);
+    row.getCell(17).numFmt = RP;
+    row.eachCell({ includeEmpty: true }, (c) => { c.font = { name: 'Calibri', size: 11 }; });
+    const tint = !validated ? 'FFFFF2CC' : kondisi === 'tidak_sesuai' ? 'FFFDE2E1' : null; // kuning = menunggu, merah muda = tidak sesuai
+    if (tint) [10, 11].forEach((c) => { row.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: tint } }; });
+  }
+  if (all.length) {
+    const last = all.length + 1;
+    const tot = ws.addRow(['TOTAL', null, { formula: `COUNTA(C2:C${last})`, result: all.length }]);
+    tot.getCell(17).value = { formula: `SUM(Q2:Q${last})`, result: totalNilai };
+    tot.getCell(17).numFmt = RP;
+    tot.eachCell({ includeEmpty: true }, (c) => { c.font = { name: 'Calibri', size: 11, bold: true }; c.border = { top: { style: 'thin' } }; });
+    ws.autoFilter = { from: 'A1', to: { row: last, column: 17 } };
+  } else {
+    ws.addRow(['Tidak ada retur di rentang tanggal ini.']);
+  }
+  ws.views = [{ state: 'frozen', ySplit: 1 }];
+
+  const rk = wb.addWorksheet('Ringkasan');
+  rk.columns = [{ width: 30 }, { width: 22 }];
+  [['Periode retur', `${from} s/d ${to}`], ['Total retur', all.length], ['Menunggu validasi', count.menunggu], ['Sesuai (stok masuk)', count.sesuai], ['Tidak sesuai', count.tidak_sesuai], ['Total nilai retur', totalNilai]]
+    .forEach((r, i) => {
+      const row = rk.addRow(r);
+      row.getCell(1).font = { name: 'Calibri', size: 11, bold: true };
+      row.getCell(2).font = { name: 'Calibri', size: 11 };
+      row.getCell(2).alignment = { horizontal: 'left' };
+      if (i === 5) row.getCell(2).numFmt = RP;
+    });
+
+  const buffer = Buffer.from(await wb.xlsx.writeBuffer());
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="Retur_${from}_sd_${to}.xlsx"`);
+  res.setHeader('Content-Length', buffer.length);
+  res.send(buffer);
+});
+
 // Isi / ubah alasan & catatan retur (admin/CS) -- dipakai buat retur yang discan tim packing,
 // karena packer tidak mengisi alasan. Body: { alasan, catatan } (yang tidak dikirim tidak diubah).
 router.patch('/:id', requireAuth, requireRole('admin', 'cs'), async (req, res) => {

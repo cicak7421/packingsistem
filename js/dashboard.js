@@ -68,6 +68,7 @@ let calStates = {
   affiliate: { viewDate: new Date(), rangeStart: null, rangeEnd: null },
   estimasi: { viewDate: new Date(), rangeStart: null, rangeEnd: null },
   estexport: { viewDate: new Date(), rangeStart: null, rangeEnd: null },
+  retur: { viewDate: new Date(), rangeStart: null, rangeEnd: null }, // rentang tanggal Daftar retur (js/retur.js)
 };
 
 // ---------- Export Data state (harus dideklarasi sebelum showPanel() dipanggil di bawah) ----------
@@ -2475,7 +2476,7 @@ function changeEstimasiPage(delta) {
 
 // ---------- Kalender rentang tanggal custom (ala Shopee), dipakai di Performa Packing & Export Data ----------
 // target: 'perf' atau 'export' -- masing-masing punya popup & state sendiri-sendiri.
-const CAL_MAX_RANGE_DAYS = { perf: null, export: EXPORT_MAX_RANGE_DAYS, affiliate: null, estimasi: null, estexport: EXPORT_MAX_RANGE_DAYS }; // null = gak dibatasi
+const CAL_MAX_RANGE_DAYS = { perf: null, export: EXPORT_MAX_RANGE_DAYS, affiliate: null, estimasi: null, estexport: EXPORT_MAX_RANGE_DAYS, retur: null }; // null = gak dibatasi
 
 function toggleCalPopup(target) {
   const popup = document.getElementById('calPopup-' + target);
@@ -2485,6 +2486,7 @@ function toggleCalPopup(target) {
   closeCalPopup('affiliate');
   closeCalPopup('estimasi');
   closeCalPopup('estexport');
+  closeCalPopup('retur');
 
   const st = calStates[target];
   st.viewDate = new Date();
@@ -2503,6 +2505,10 @@ function toggleCalPopup(target) {
   } else if (target === 'estimasi') {
     st.rangeStart = estimasiState.preset === 'custom' ? estimasiState.from : null;
     st.rangeEnd = estimasiState.preset === 'custom' ? estimasiState.to : null;
+  } else if (target === 'retur' && typeof getReturRange === 'function') {
+    const r = getReturRange();
+    st.rangeStart = r.from || null;
+    st.rangeEnd = r.to || null;
   }
   popup.style.display = 'block';
   renderCalPopup(target);
@@ -2587,6 +2593,8 @@ function calApplyRange(target) {
     estimasiState = { preset: 'custom', from, to };
     estimasiDay = null;
     loadEstimasi();
+  } else if (target === 'retur' && typeof setReturRange === 'function') {
+    setReturRange(from, to);
   }
 }
 

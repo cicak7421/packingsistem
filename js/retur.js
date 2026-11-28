@@ -33,9 +33,8 @@
       state.inited = true;
       state.to = wibToday();
       state.from = addDays(state.to, -29);
-      $('returFrom').value = state.from;
-      $('returTo').value = state.to;
     }
+    renderRangeText();
     loadRetur();
   };
 
@@ -143,12 +142,16 @@
     }, 350);
   };
 
-  window.onReturDateChange = function () {
-    const from = $('returFrom').value;
-    const to = $('returTo').value;
-    if (!from || !to) return;
-    if (from > to) { say('Tanggal awal tidak boleh setelah tanggal akhir', 'err'); return; }
+  // Rentang tanggal dipilih lewat kalender popup bersama di dashboard.js (toggleCalPopup('retur')).
+  function renderRangeText() {
+    const fmt = typeof formatDateDisplay === 'function' ? formatDateDisplay : (d) => d;
+    $('returRangeText').textContent = state.from && state.to ? `${fmt(state.from)} - ${fmt(state.to)}` : 'Pilih tanggal';
+  }
+  window.getReturRange = function () { return { from: state.from, to: state.to }; };
+  window.setReturRange = function (from, to) {
     state.from = from; state.to = to; state.page = 1;
+    renderRangeText();
+    $('returExportMsg').textContent = '';
     loadRetur();
   };
 
@@ -194,6 +197,41 @@
       loadRetur();
     } catch (e) {
       say(e.message || 'Gagal memvalidasi retur', 'err');
+      btn.disabled = false;
+    }
+  };
+
+  // Export daftar retur (rentang tanggal + pencarian yang lagi dipakai, semua halaman) ke Excel.
+  window.exportReturExcel = async function () {
+    const btn = $('returExportBtn');
+    const msg = $('returExportMsg');
+    const params = new URLSearchParams({ from: state.from, to: state.to });
+    if (state.q) params.set('q', state.q);
+    btn.disabled = true;
+    msg.textContent = 'Menyiapkan file...';
+    try {
+      const token = getToken();
+      const res = await fetch('/api/retur/export?' + params.toString(), { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      if (res.status === 401) { clearSession(); window.location.href = '/login.html'; return; }
+      if (!res.ok) {
+        let errMsg = 'Gagal export data';
+        try { errMsg = (await res.json()).error || errMsg; } catch (e) { /* abaikan */ }
+        throw new Error(errMsg);
+      }
+      const blob = await res.blob();
+      const m = (res.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = m ? m[1] : `Retur_${state.from}_sd_${state.to}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      msg.textContent = 'File berhasil di-download';
+    } catch (e) {
+      msg.textContent = e.message;
+    } finally {
       btn.disabled = false;
     }
   };

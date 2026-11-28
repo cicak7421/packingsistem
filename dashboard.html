@@ -557,11 +557,15 @@
       <div class="card-title">Daftar retur</div>
       <div class="orders-filter-row">
         <input type="text" id="returSearch" class="search-input" placeholder="Cari No. Resi / No. Pesanan..." style="min-width:220px;" oninput="onReturSearch()">
-        <span style="display:inline-flex; align-items:center; gap:6px; flex-wrap:wrap;">
-          <input type="date" id="returFrom" style="width:auto; margin-bottom:0;" onchange="onReturDateChange()">
-          <span class="hint">s/d</span>
-          <input type="date" id="returTo" style="width:auto; margin-bottom:0;" onchange="onReturDateChange()">
-        </span>
+        <div class="cal-popup-wrap" style="display:inline-block;">
+          <button type="button" class="date-range-trigger" id="returRangeTrigger" style="width:auto; min-width:250px; margin:0;" onclick="toggleCalPopup('retur')">
+            <span id="returRangeText">Pilih tanggal</span>
+            <span class="cal-icon">📅</span>
+          </button>
+          <div class="cal-popup" id="calPopup-retur" style="display:none;"></div>
+        </div>
+        <button type="button" class="btn-outline" id="returExportBtn" style="width:auto; margin:0; padding:8px 14px;" onclick="exportReturExcel()" title="Download daftar retur di rentang tanggal ini (semua halaman) sebagai Excel">Export ke Excel</button>
+        <span class="hint" id="returExportMsg"></span>
       </div>
       <div class="table-wrap">
         <table>
@@ -627,8 +631,8 @@
 </div>
 
 <script src="js/afParser.js?v=b03e8f03"></script>
-<script src="js/dashboard.js?v=932b6659"></script>
-<script src="js/retur.js?v=65de177e"></script>
+<script src="js/dashboard.js?v=66b3b6f7"></script>
+<script src="js/retur.js?v=0a208686"></script>
 <script src="js/liveSync.js?v=46c9e3cf"></script>
 </body>
 </html>
