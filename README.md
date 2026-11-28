@@ -79,7 +79,7 @@ Cara hitung per pesanan:
 **Jalankan `migration-retur.sql` di Supabase SQL Editor dulu** (sekali saja). Sebelum itu dijalankan, fitur lain tetap normal; hanya pencatatan retur yang belum aktif.
 
 Alurnya:
-1. Paket balik sampai di gudang. Tim packing buka **Scan Packing**, pindah saklar ke **Retur**, pilih kondisi barang (**Bagus** = stok balik ke Inventory, **Rusak** = stok tidak balik) dan alasan, lalu scan resinya. Halaman selalu kembali ke mode Packing tiap dibuka ulang, supaya tidak ada paket yang salah tercatat.
+1. Paket balik sampai di gudang. Tim packing buka **Scan Packing**, pindah saklar ke **Retur**, pilih kondisi barang (**Bagus** = stok balik ke Inventory, **Rusak** = stok tidak balik), lalu scan resinya. Akun packing TIDAK mengisi dan tidak bisa melihat alasan retur -- itu khusus admin/CS (diisi dari daftar di tab Retur). Halaman selalu kembali ke mode Packing tiap dibuka ulang, supaya tidak ada paket yang salah tercatat.
 2. Admin/CS bisa mencatat manual (ketik No. Resi / No. Pesanan) di tab **Retur**, melihat daftar + total nilai retur, dan **membatalkan** retur yang salah scan (stok yang sempat dikembalikan ikut ditarik lagi).
 3. **Estimasi Penghasilan**: pesanan retur dihitung Rp0. Jumlah & nilai retur tampil di kartu "Pesanan Retur", kolom Retur di rekap harian/bulanan, dan tanda RETUR di daftar pesanan.
 4. **Export Excel estimasi**: baris pesanan retur berwarna merah muda, kolom Income = 0, ada kolom `Status` (RETUR) dan `Retur Amount`. Sheet **Daily Summary** punya kolom jumlah & nilai retur per hari + baris TOTAL, dan ada sheet **Retur** berisi daftar semua pesanan retur (tanggal pesanan, tanggal retur, kondisi, alasan, nilai).

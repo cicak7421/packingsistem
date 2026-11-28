@@ -10,7 +10,7 @@ const router = express.Router();
 
 // ---------- Alur Retur ----------
 // 1. Paket balik ke gudang -> tim packing buka Scan Packing, pindah ke mode "Retur", pilih kondisi
-//    barang (Bagus / Rusak) + alasan, lalu scan resinya. (Admin/CS bisa input manual di tab Retur.)
+//    barang (Bagus / Rusak), lalu scan resinya. Alasan retur diisi admin/CS di tab Retur.
 // 2. Pesanan ditandai retur (orders.retur_at). Kondisi "bagus" -> stok otomatis balik ke Inventory.
 // 3. Estimasi Penghasilan: pesanan retur dihitung Rp0, nilainya dicatat terpisah (layar & Excel).
 // 4. Salah scan? Batalkan dari tab Retur -> status & stok kembali seperti semula.
@@ -36,11 +36,15 @@ async function userName(id) {
   return data ? data.full_name : null;
 }
 
-router.get('/alasan', requireAuth, (req, res) => res.json({ alasan: RETUR_ALASAN }));
+// Alasan & catatan retur KHUSUS admin/CS: akun packing tidak bisa mengisi maupun melihatnya.
+const canSeeAlasan = (user) => ['admin', 'cs'].includes(user.role);
+const hideAlasan = (order) => { const o = { ...order }; delete o.retur_alasan; delete o.retur_catatan; return o; };
 
-// Tandai satu paket sebagai retur. Body: { value, kondisi: 'bagus'|'rusak', alasan, catatan }.
+// Tandai satu paket sebagai retur. Body: { value, kondisi: 'bagus'|'rusak' } + khusus admin/CS: alasan, catatan.
 router.post('/scan', requireAuth, requireRole('packing', 'admin', 'cs'), async (req, res) => {
   const body = req.body || {};
+  const staff = canSeeAlasan(req.user);
+  const view = (o) => (staff || !o ? o : hideAlasan(o));
   const kondisi = body.kondisi === 'rusak' ? 'rusak' : 'bagus';
   const { value, order, error } = await findOrder(body.value);
   if (!value) return res.status(400).json({ error: 'Nilai scan kosong' });
@@ -53,13 +57,13 @@ router.post('/scan', requireAuth, requireRole('packing', 'admin', 'cs'), async (
   }
   if (order.retur_at) {
     const by = (await userName(order.retur_by)) || 'akun lain';
-    return res.status(409).json({ status: 'sudah_retur', message: `Paket ini SUDAH dicatat retur sebelumnya oleh ${by}.`, order });
+    return res.status(409).json({ status: 'sudah_retur', message: `Paket ini SUDAH dicatat retur sebelumnya oleh ${by}.`, order: view(order) });
   }
   if (order.status_packing !== 'sudah_packing' && !['dikirim', 'diterima'].includes(order.status_resi)) {
     return res.status(409).json({
       status: 'belum_packing',
       message: 'Pesanan ini belum pernah di-packing / dikirim, jadi bukan paket retur. Cek lagi paketnya.',
-      order,
+      order: view(order),
     });
   }
 
@@ -67,12 +71,12 @@ router.post('/scan', requireAuth, requireRole('packing', 'admin', 'cs'), async (
     retur_at: new Date().toISOString(),
     retur_by: req.user.id,
     retur_kondisi: kondisi,
-    retur_alasan: text(body.alasan, 80) || null,
-    retur_catatan: text(body.catatan, 300) || null,
+    retur_alasan: staff ? text(body.alasan, 80) || null : null,
+    retur_catatan: staff ? text(body.catatan, 300) || null : null,
   };
   const { data: updated, error: updErr } = await supabase.from('orders').update(payload).eq('id', order.id).is('retur_at', null).select('*').maybeSingle();
   if (updErr) return res.status(500).json({ error: isReturColErr(updErr) ? RETUR_MISSING_MSG : 'Gagal mencatat retur: ' + updErr.message });
-  if (!updated) return res.status(409).json({ status: 'sudah_retur', message: 'Paket ini baru saja dicatat retur oleh akun lain.', order });
+  if (!updated) return res.status(409).json({ status: 'sudah_retur', message: 'Paket ini baru saja dicatat retur oleh akun lain.', order: view(order) });
 
   let restock = null;
   let message = 'Retur dicatat (barang RUSAK — stok tidak dikembalikan).';
@@ -83,14 +87,14 @@ router.post('/scan', requireAuth, requireRole('packing', 'admin', 'cs'), async (
       ? `Retur dicatat. Stok dikembalikan: ${restock.restocked.map((r) => `${r.sku} +${r.qty}`).join(', ')}.`
       : 'Retur dicatat. Stok tidak berubah (SKU belum terdaftar di Inventory).';
   }
-  res.json({ status: 'ok', message, order: { ...updated, retur_by_name: req.user.full_name }, restock });
+  res.json({ status: 'ok', message, order: { ...view(updated), retur_by_name: req.user.full_name }, restock });
 });
 
 // Riwayat retur hari ini (kalender WIB) untuk akun yang login -- dipakai halaman Scan Packing.
 router.get('/my-today', requireAuth, requireRole('packing', 'admin', 'cs'), async (req, res) => {
   const { data, error } = await supabase
     .from('orders')
-    .select('id, no_pesanan, no_resi, sku, retur_at, retur_kondisi, retur_alasan')
+    .select('id, no_pesanan, no_resi, sku, retur_at, retur_kondisi')
     .eq('retur_by', req.user.id)
     .gte('retur_at', wibStartUTC(wibDate(Date.now())))
     .order('retur_at', { ascending: false })
@@ -172,6 +176,22 @@ router.get('/', requireAuth, requireRole('admin', 'cs'), async (req, res) => {
       nilai,
     })),
   });
+});
+
+// Isi / ubah alasan & catatan retur (admin/CS) -- dipakai buat retur yang discan tim packing,
+// karena packer tidak mengisi alasan. Body: { alasan, catatan } (yang tidak dikirim tidak diubah).
+router.patch('/:id', requireAuth, requireRole('admin', 'cs'), async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'ID pesanan tidak valid' });
+  const body = req.body || {};
+  const payload = {};
+  if ('alasan' in body) payload.retur_alasan = text(body.alasan, 80) || null;
+  if ('catatan' in body) payload.retur_catatan = text(body.catatan, 300) || null;
+  if (!Object.keys(payload).length) return res.status(400).json({ error: 'Tidak ada yang diubah' });
+  const { data, error } = await supabase.from('orders').update(payload).eq('id', id).not('retur_at', 'is', null).select('id, retur_alasan, retur_catatan');
+  if (error) return res.status(500).json({ error: isReturColErr(error) ? RETUR_MISSING_MSG : 'Gagal menyimpan alasan: ' + error.message });
+  if (!data || !data.length) return res.status(404).json({ error: 'Pesanan retur tidak ditemukan' });
+  res.json({ ok: true, ...data[0] });
 });
 
 // Batalkan retur (salah scan). Stok yang sempat dikembalikan ikut ditarik lagi.

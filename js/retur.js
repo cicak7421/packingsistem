@@ -5,6 +5,7 @@
 
   const state = { page: 1, totalPages: 1, from: '', to: '', q: '', seq: 0, inited: false };
   let searchTimer = null;
+  let alasanList = [];
   const $ = (id) => document.getElementById(id);
   const say = (msg, type) => { if (typeof toast === 'function') toast(msg, type || 'info'); };
 
@@ -22,6 +23,7 @@
 
   function fillAlasan(list) {
     const sel = $('returAlasan');
+    if (list && list.length) alasanList = list;
     if (!sel || !list || !list.length || sel.options.length === list.length) return;
     sel.innerHTML = list.map((a) => `<option>${estEsc(a)}</option>`).join('');
   }
@@ -73,7 +75,7 @@
             <td>${estEsc(r.toko || '-')}</td>
             <td>${typeof formatSkuChips === 'function' ? formatSkuChips(r.sku) : estEsc(r.sku)}</td>
             <td><span class="badge ${rusak ? 'badge-danger' : 'badge-ok'}">${rusak ? 'Rusak' : 'Bagus'}</span></td>
-            <td>${estEsc(r.retur_alasan || '-')}${r.retur_catatan ? `<div class="hint">${estEsc(r.retur_catatan)}</div>` : ''}</td>
+            <td>${alasanSelect(r)}${r.retur_catatan ? `<div class="hint">${estEsc(r.retur_catatan)}</div>` : ''}</td>
             <td>${estEsc(r.retur_by_name || '-')}</td>
             <td style="text-align:right;"><b>${estRupiah(r.nilai)}</b></td>
             <td style="text-align:right;"><button type="button" class="btn-outline" style="width:auto; margin:0; padding:6px 10px;" data-id="${r.id}" data-no="${estEsc(r.no_pesanan)}" onclick="cancelRetur(this)">Batalkan</button></td>
@@ -90,6 +92,31 @@
       tbody.innerHTML = `<tr><td colspan="9" class="empty-state">${estEsc(e.message)}</td></tr>`;
     }
   }
+
+  // Alasan bisa diisi / diubah langsung dari daftar (retur dari scan packing datang tanpa alasan).
+  function alasanSelect(r) {
+    const cur = r.retur_alasan || '';
+    const opts = alasanList.includes(cur) || !cur ? alasanList : [cur, ...alasanList];
+    return `<select data-id="${r.id}" data-prev="${estEsc(cur)}" onchange="saveReturAlasan(this)" style="width:auto; min-width:190px; margin:0; padding:6px 8px;${cur ? '' : ' border-color:var(--warn);'}">
+      <option value=""${cur ? '' : ' selected'}>— belum diisi —</option>
+      ${opts.map((a) => `<option${a === cur ? ' selected' : ''}>${estEsc(a)}</option>`).join('')}
+    </select>`;
+  }
+
+  window.saveReturAlasan = async function (sel) {
+    sel.disabled = true;
+    try {
+      await api('/retur/' + sel.dataset.id, { method: 'PATCH', body: JSON.stringify({ alasan: sel.value }) });
+      sel.dataset.prev = sel.value;
+      sel.style.borderColor = sel.value ? '' : 'var(--warn)';
+      say('Alasan retur disimpan', 'ok');
+    } catch (e) {
+      sel.value = sel.dataset.prev;
+      say(e.message || 'Gagal menyimpan alasan', 'err');
+    } finally {
+      sel.disabled = false;
+    }
+  };
 
   window.changeReturPage = function (delta) {
     const next = state.page + delta;

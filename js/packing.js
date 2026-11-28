@@ -9,15 +9,6 @@ let html5QrCode;
 // gak ada paket yang kecatat retur gara-gara mode kemarin masih nyangkut.
 let scanMode = 'packing';
 let returKondisi = 'bagus';
-const RETUR_ALASAN_FALLBACK = ['Gagal kirim / alamat tidak ditemukan', 'Pembeli menolak / tidak di tempat', 'Pembeli ajukan pengembalian', 'Barang rusak / cacat', 'Salah kirim barang', 'Lainnya'];
-
-function fillReturAlasan(list) {
-  const sel = document.getElementById('returAlasanSelect');
-  if (!sel) return;
-  const keep = sel.value;
-  sel.innerHTML = list.map((a) => `<option>${escHtml(a)}</option>`).join('');
-  if (keep && list.includes(keep)) sel.value = keep;
-}
 
 function setScanMode(mode) {
   scanMode = mode === 'retur' ? 'retur' : 'packing';
@@ -196,11 +187,11 @@ async function submitScan(value) {
   }, cooldown);
 }
 
-// Mode Retur: catat paket balik. Kondisi & alasan diambil dari pilihan di atas kamera.
+// Mode Retur: catat paket balik. Packer cuma pilih kondisi barang; ALASAN retur diisi & dilihat
+// admin/CS saja (tab Retur di dashboard), tidak tampil di halaman ini.
 async function submitRetur(value) {
   try {
-    const alasan = document.getElementById('returAlasanSelect').value;
-    const data = await api('/retur/scan', { method: 'POST', body: JSON.stringify({ value, kondisi: returKondisi, alasan }) });
+    const data = await api('/retur/scan', { method: 'POST', body: JSON.stringify({ value, kondisi: returKondisi }) });
     feedback(true);
     renderResult('ok', data.message, data.order, null, 'retur');
   } catch (e) {
@@ -262,7 +253,7 @@ async function loadReturHistory() {
           <span>${escHtml(r.no_resi || r.no_pesanan)}</span>
           <span class="badge ${rusak ? 'badge-danger' : 'badge-ok'}">${rusak ? 'Rusak' : 'Bagus'}</span>
         </div>
-        <div class="time">${time}${r.retur_alasan ? ' · ' + escHtml(r.retur_alasan) : ''}</div>
+        <div class="time">${time}</div>
       </div>`;
     }).join('');
   } catch (e) { /* diamkan */ }
@@ -380,7 +371,6 @@ document.getElementById('manualValue')?.addEventListener('keydown', (e) => {
 });
 
 if (user) {
-  fillReturAlasan(RETUR_ALASAN_FALLBACK);
   startScanner();
   loadHistory();
 }
