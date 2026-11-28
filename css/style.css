@@ -1714,3 +1714,9 @@ tr.order-row.row-critical > td:first-child { box-shadow: inset 3px 0 0 var(--dan
 /* Popup kalender jangan ketutup kartu di bawahnya: kartu yang popup-nya lagi kebuka diangkat ke atas */
 .card:has(> .cal-popup-wrap > .cal-popup[style*="display: block"]),
 .card:has(.cal-popup[style*="display: block"]) { z-index: 70; }
+
+/* ---------- Jam sidebar saat diciutkan: jangan sampai terpotong ---------- */
+@media (min-width: 960px) {
+  body.side-collapsed .side-clock { margin: 0 0 16px; padding: 10px 0; text-align: center; }
+  body.side-collapsed .side-clock .clock-time { font-size: 15px; letter-spacing: -0.02em; white-space: nowrap; }
+}
