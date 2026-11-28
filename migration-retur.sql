@@ -16,4 +16,10 @@ alter table orders add column if not exists retur_catatan text;
 alter table orders add column if not exists retur_validated_at timestamptz;
 alter table orders add column if not exists retur_validated_by integer references users(id);
 
+-- Detail validasi: per SKU berapa pcs yang balik & berapa yang rusak, plus kenapa tidak sesuai.
+--   retur_items  = [{ "sku": "...", "qty_pesan": 2, "qty_balik": 1, "qty_rusak": 0 }, ...]
+--   retur_masalah = mis. "Jumlah kurang", "Barang rusak / cacat", "Barang beda / tertukar"
+alter table orders add column if not exists retur_items jsonb;
+alter table orders add column if not exists retur_masalah text;
+
 create index if not exists idx_orders_retur_at on orders(retur_at) where retur_at is not null;

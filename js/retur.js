@@ -6,6 +6,9 @@
   const state = { page: 1, totalPages: 1, from: '', to: '', q: '', seq: 0, inited: false };
   let searchTimer = null;
   let alasanList = [];
+  let masalahList = [];
+  const rowsById = new Map(); // baris yang lagi tampil -> bahan form validasi
+  let valRow = null; // retur yang lagi dibuka di form validasi
   const $ = (id) => document.getElementById(id);
   const say = (msg, type) => { if (typeof toast === 'function') toast(msg, type || 'info'); };
 
@@ -53,6 +56,9 @@
       const data = await api('/retur?' + params.toString());
       if (seq !== state.seq) return;
       fillAlasan(data.alasan);
+      if (data.masalah && data.masalah.length) masalahList = data.masalah;
+      rowsById.clear();
+      (data.returs || []).forEach((r) => rowsById.set(String(r.id), r));
       $('returNotice').innerHTML = data.ready === false
         ? `<div class="card" style="border-color:var(--warn);"><b>Fitur retur belum aktif.</b> <span class="hint">${estEsc(data.message || '')}</span></div>`
         : '';
@@ -69,20 +75,18 @@
       } else {
         tbody.innerHTML = data.returs.map((r) => {
           const tidak = r.retur_kondisi === 'tidak_sesuai';
-          // Belum divalidasi: 2 tombol (Sesuai -> stok masuk / Tidak sesuai). Sudah: status + tombol koreksi.
+          // Validasi lewat form detail (pcs balik / rusak per SKU + kenapa tidak sesuai). Sudah divalidasi: bisa dikoreksi.
           const validasi = r.validated
-            ? `<span class="badge ${tidak ? 'badge-danger' : 'badge-ok'}">${tidak ? 'Tidak sesuai' : 'Sesuai · stok masuk'}</span><div class="hint">${estEsc(r.retur_validated_by_name || '')}</div>`
+            ? `<span class="badge ${tidak ? 'badge-danger' : 'badge-ok'}">${tidak ? 'Tidak sesuai' : 'Sesuai'}</span>${tidak && r.retur_masalah ? `<div style="font-weight:600; margin-top:4px;">${estEsc(r.retur_masalah)}</div>` : ''}<div class="hint">${estEsc(r.retur_validated_by_name || '')}</div>`
             : '<span class="badge badge-warn">Menunggu</span>';
-          const aksi = r.validated
-            ? `<button type="button" class="btn-outline" data-id="${r.id}" data-no="${estEsc(r.no_pesanan)}" data-kondisi="${tidak ? 'sesuai' : 'tidak_sesuai'}" onclick="validateRetur(this)">Ubah jadi ${tidak ? 'Sesuai' : 'Tidak sesuai'}</button>`
-            : `<button type="button" class="btn-outline btn-ya" data-id="${r.id}" data-no="${estEsc(r.no_pesanan)}" data-kondisi="sesuai" onclick="validateRetur(this)">Sesuai</button><button type="button" class="btn-outline btn-tidak" data-id="${r.id}" data-no="${estEsc(r.no_pesanan)}" data-kondisi="tidak_sesuai" onclick="validateRetur(this)">Tidak sesuai</button>`;
+          const aksi = `<button type="button" class="btn-outline${r.validated ? '' : ' btn-ya'}" data-id="${r.id}" onclick="openReturValidasi(this)">${r.validated ? 'Koreksi' : 'Validasi'}</button>`;
           return `<tr${r.validated ? '' : ' class="row-menunggu"'}>
             <td style="white-space:nowrap;">${estEsc(fmtTime(r.retur_at))}</td>
             <td>${estEsc(r.no_pesanan)}<div class="hint">${estEsc(r.no_resi || '-')}</div></td>
             <td>${estEsc(r.toko || '-')}</td>
             <td>${typeof formatSkuChips === 'function' ? formatSkuChips(r.sku) : estEsc(r.sku)}</td>
-            <td>${r.validated ? '<span class="hint">-</span>' : `<span class="badge ${tidak ? 'badge-danger' : 'badge-muted'}">${tidak ? 'Tidak sesuai' : 'Sesuai'}</span><div class="hint">cek packer</div>`}</td>
             <td>${validasi}</td>
+            <td>${detailCell(r)}</td>
             <td>${alasanSelect(r)}${r.retur_catatan ? `<div class="hint">${estEsc(r.retur_catatan)}</div>` : ''}</td>
             <td>${estEsc(r.retur_by_name || '-')}</td>
             <td style="text-align:right;"><b>${estRupiah(r.nilai)}</b></td>
@@ -99,6 +103,20 @@
       if (seq !== state.seq) return;
       tbody.innerHTML = `<tr><td colspan="10" class="empty-state">${estEsc(e.message)}</td></tr>`;
     }
+  }
+
+  // Rincian hasil validasi per SKU: berapa yang balik dari yang dipesan, berapa rusak, berapa masuk stok.
+  function detailCell(r) {
+    if (!r.validated) return '<span class="hint">belum dicek</span>';
+    if (!r.retur_items || !r.retur_items.length) return '<span class="hint">tanpa rincian (validasi lama)</span>';
+    let masuk = 0;
+    const lines = r.retur_items.map((it) => {
+      const balik = Number(it.qty_balik) || 0, pesan = Number(it.qty_pesan) || 0, rusak = Number(it.qty_rusak) || 0;
+      masuk += balik - rusak;
+      const beda = balik !== pesan || rusak > 0;
+      return `<div style="white-space:nowrap;${beda ? ' color:var(--danger);' : ''}"><b>${estEsc(it.sku)}</b> balik ${estNum(balik)}/${estNum(pesan)} pcs${rusak ? ` · rusak ${estNum(rusak)}` : ''}</div>`;
+    }).join('');
+    return `${lines}<div class="hint">masuk stok ${estNum(masuk)} pcs</div>`;
   }
 
   // Alasan bisa diisi / diubah langsung dari daftar (retur dari scan packing datang tanpa alasan).
@@ -166,7 +184,7 @@
     try {
       const data = await api('/retur/scan', {
         method: 'POST',
-        body: JSON.stringify({ value, kondisi: $('returKondisi').value, alasan: $('returAlasan').value, catatan: $('returCatatan').value }),
+        body: JSON.stringify({ value, alasan: $('returAlasan').value, catatan: $('returCatatan').value }),
       });
       msg.textContent = `${data.order.no_pesanan}: ${data.message}`;
       say('Retur dicatat: ' + data.order.no_pesanan, 'ok');
@@ -183,20 +201,103 @@
     }
   };
 
-  // Validasi (atau koreksi) hasil retur. Sesuai -> stok masuk ke Inventory; Tidak sesuai -> tidak.
-  window.validateRetur = async function (btn) {
-    const sesuai = btn.dataset.kondisi === 'sesuai';
-    const tanya = sesuai
-      ? `Validasi retur ${btn.dataset.no} sebagai SESUAI?\n\nStok barangnya akan MASUK ke Inventory.`
-      : `Validasi retur ${btn.dataset.no} sebagai TIDAK SESUAI?\n\nStok TIDAK masuk ke Inventory (kalau sempat masuk, ditarik lagi).`;
-    if (!confirm(tanya)) return;
+  // ---------- Form validasi (atau koreksi) retur ----------
+  // Per SKU diisi berapa pcs yang balik & berapa yang rusak. Masuk Inventory = balik - rusak.
+  // Semua balik & tidak ada yang rusak = SESUAI; selain itu TIDAK SESUAI + wajib pilih kenapa.
+  const valInputs = () => [...$('rvItems').querySelectorAll('tr[data-sku]')].map((tr) => ({
+    tr, sku: tr.dataset.sku, pesan: Number(tr.dataset.pesan) || 0,
+    balik: tr.querySelector('[data-f="balik"]'), rusak: tr.querySelector('[data-f="rusak"]'),
+  }));
+  const clampInt = (v, max) => Math.max(0, Math.min(max, parseInt(v, 10) || 0));
+
+  window.openReturValidasi = function (btn) {
+    const r = rowsById.get(String(btn.dataset.id));
+    if (!r) return;
+    valRow = r;
+    const saved = new Map((r.retur_items || []).map((it) => [String(it.sku).toUpperCase(), it]));
+    const tidakLama = r.validated && r.retur_kondisi === 'tidak_sesuai'; // validasi lama tanpa rincian
+    $('rvTitle').textContent = r.validated ? 'Koreksi validasi retur' : 'Validasi retur';
+    $('rvSubtitle').textContent = `${r.no_pesanan} · ${r.no_resi || '-'}`;
+    const numStyle = 'width:74px; margin:0; padding:6px 8px; text-align:center;';
+    $('rvItems').innerHTML = (r.items || []).map((it) => {
+      const s = saved.get(String(it.sku).toUpperCase());
+      const balik = s ? clampInt(s.qty_balik, it.qty) : tidakLama ? 0 : it.qty;
+      const rusak = s ? clampInt(s.qty_rusak, balik) : 0;
+      return `<tr data-sku="${estEsc(it.sku)}" data-pesan="${it.qty}">
+        <td><b>${estEsc(it.sku)}</b></td>
+        <td style="text-align:center;">${estNum(it.qty)}</td>
+        <td style="text-align:center;"><input type="number" inputmode="numeric" min="0" max="${it.qty}" step="1" value="${balik}" data-f="balik" style="${numStyle}" oninput="returValRecalc()" aria-label="Pcs balik ${estEsc(it.sku)}"></td>
+        <td style="text-align:center;"><input type="number" inputmode="numeric" min="0" max="${it.qty}" step="1" value="${rusak}" data-f="rusak" style="${numStyle}" oninput="returValRecalc()" aria-label="Pcs rusak ${estEsc(it.sku)}"></td>
+        <td style="text-align:center;"><b data-f="masuk"></b></td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="5" class="empty-state">SKU pesanan ini tidak terbaca.</td></tr>';
+    const noItems = !(r.items || []).length;
+    $('rvKondisiWrap').style.display = noItems ? 'block' : 'none';
+    $('rvKondisi').value = r.retur_kondisi === 'tidak_sesuai' && r.validated ? 'tidak_sesuai' : 'sesuai';
+    const cur = r.retur_masalah || '';
+    const opts = !cur || masalahList.includes(cur) ? masalahList : [cur, ...masalahList];
+    $('rvMasalah').innerHTML = '<option value="">— pilih —</option>' + opts.map((m) => `<option${m === cur ? ' selected' : ''}>${estEsc(m)}</option>`).join('');
+    $('rvCatatan').value = r.retur_catatan || '';
+    $('rvMsg').textContent = '';
+    $('rvSubmitBtn').disabled = false;
+    window.returValRecalc();
+    $('returValOverlay').style.display = 'flex';
+  };
+
+  window.closeReturValidasi = function () {
+    $('returValOverlay').style.display = 'none';
+    valRow = null;
+  };
+
+  window.returValPreset = function (mode) {
+    valInputs().forEach((x) => { x.balik.value = mode === 'semua' ? x.pesan : 0; x.rusak.value = 0; });
+    window.returValRecalc();
+  };
+
+  // Hitung ulang "masuk stok" + hasil (Sesuai / Tidak sesuai) tiap angka diubah.
+  window.returValRecalc = function () {
+    const rows = valInputs();
+    let pesan = 0, balik = 0, rusak = 0;
+    rows.forEach((x) => {
+      const b = clampInt(x.balik.value, x.pesan);
+      const ru = clampInt(x.rusak.value, b);
+      // Angka di luar batas langsung dirapikan (kecuali kotak yang lagi dikosongkan buat diketik ulang).
+      if (x.balik.value !== '' && String(b) !== x.balik.value) x.balik.value = b;
+      if (x.rusak.value !== '' && String(ru) !== x.rusak.value) x.rusak.value = ru;
+      x.rusak.max = b;
+      x.tr.querySelector('[data-f="masuk"]').textContent = estNum(b - ru);
+      pesan += x.pesan; balik += b; rusak += ru;
+    });
+    const sesuai = rows.length ? balik === pesan && rusak === 0 : $('rvKondisi').value === 'sesuai';
+    $('rvMasalahWrap').style.display = sesuai ? 'none' : 'block';
+    const ringkas = rows.length ? `Balik ${estNum(balik)} dari ${estNum(pesan)} pcs${rusak ? `, rusak ${estNum(rusak)} pcs` : ''} — masuk stok ${estNum(balik - rusak)} pcs.` : '';
+    $('rvHasil').innerHTML = `<span class="badge ${sesuai ? 'badge-ok' : 'badge-danger'}">Hasil: ${sesuai ? 'Sesuai' : 'Tidak sesuai'}</span> <span class="hint">${ringkas}</span>`;
+    return sesuai;
+  };
+
+  window.submitReturValidasi = async function () {
+    if (!valRow) return;
+    const sesuai = window.returValRecalc();
+    const masalah = $('rvMasalah').value;
+    const msg = $('rvMsg');
+    if (!sesuai && !masalah) { msg.textContent = 'Pilih dulu kenapa retur ini tidak sesuai.'; $('rvMasalah').focus(); return; }
+    const rows = valInputs();
+    const body = {
+      items: rows.map((x) => { const b = clampInt(x.balik.value, x.pesan); return { sku: x.sku, balik: b, rusak: clampInt(x.rusak.value, b) }; }),
+      masalah: sesuai ? '' : masalah,
+      catatan: $('rvCatatan').value,
+    };
+    if (!rows.length) body.kondisi = $('rvKondisi').value;
+    const btn = $('rvSubmitBtn');
     btn.disabled = true;
+    msg.textContent = '';
     try {
-      const data = await api('/retur/' + btn.dataset.id + '/validate', { method: 'POST', body: JSON.stringify({ kondisi: btn.dataset.kondisi }) });
-      say(`${data.no_pesanan}: ${data.message}`, 'ok');
+      const data = await api('/retur/' + valRow.id + '/validate', { method: 'POST', body: JSON.stringify(body) });
+      say(`${data.no_pesanan}: ${data.message}`, data.detail_saved === false ? 'info' : 'ok');
+      window.closeReturValidasi();
       loadRetur();
     } catch (e) {
-      say(e.message || 'Gagal memvalidasi retur', 'err');
+      msg.textContent = e.message || 'Gagal memvalidasi retur';
       btn.disabled = false;
     }
   };

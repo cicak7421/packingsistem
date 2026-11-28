@@ -3,18 +3,18 @@ const supabase = require('../supabase');
 const { requireAuth, requireRole } = require('../auth');
 const { cleanResi } = require('../skuHelpers');
 const { AF_DEFAULT_POTONGAN_PERSEN } = require('../skuPrices');
-const { RETUR_MISSING_MSG, VALIDASI_MISSING_MSG, RETUR_ALASAN, isReturColErr, isValidasiColErr, normKondisi, adjustStockForRetur } = require('../returHelpers');
+const { RETUR_MISSING_MSG, VALIDASI_MISSING_MSG, DETAIL_MISSING_MSG, RETUR_ALASAN, RETUR_MASALAH, isReturColErr, isValidasiColErr, isDetailColErr, normKondisi, returOrderItems, adjustStockForRetur } = require('../returHelpers');
 const estimasi = require('./estimasi');
 
 const router = express.Router();
 
 // ---------- Alur Retur ----------
-// 1. Paket balik ke gudang -> tim packing buka Scan Packing, pindah ke mode "Retur", pilih kondisi
-//    cek (Sesuai / Tidak sesuai), lalu scan resinya. Alasan retur diisi admin/CS di tab Retur.
-// 2. Pesanan ditandai retur (orders.retur_at) dengan hasil cek packer: SESUAI / TIDAK SESUAI.
-//    Stok BELUM berubah di tahap ini -- statusnya "menunggu validasi".
-// 2b. Admin/CS memvalidasi di tab Retur (boleh mengoreksi sesuai / tidak sesuai). Baru setelah
-//    divalidasi SESUAI stoknya masuk ke Inventory; TIDAK SESUAI -> stok tidak masuk.
+// 1. Paket balik ke gudang -> tim packing buka Scan Packing, pindah ke mode "Retur", lalu scan
+//    resinya (tanpa pilih apa pun). Alasan retur diisi admin/CS di tab Retur.
+// 2. Pesanan ditandai retur (orders.retur_at). Stok BELUM berubah -- statusnya "menunggu validasi".
+// 2b. Admin/CS memvalidasi di tab Retur dengan DETAIL per SKU: berapa pcs yang balik dan berapa
+//    yang rusak. Yang masuk Inventory = balik - rusak. Semua balik & tidak ada yang rusak = SESUAI;
+//    selain itu TIDAK SESUAI dan wajib diisi kenapa (retur_masalah). Detail disimpan di retur_items.
 // 3. Estimasi Penghasilan: pesanan retur dihitung Rp0, nilainya dicatat terpisah (layar & Excel).
 // 4. Salah scan? Batalkan dari tab Retur -> status & stok kembali seperti semula.
 
@@ -123,7 +123,7 @@ router.get('/', requireAuth, requireRole('admin', 'cs'), async (req, res) => {
   for (let off = 0; off < 20000; off += 1000) {
     const { data, error } = await build().range(off, off + 999);
     if (error) {
-      if (isReturColErr(error)) return res.json({ ready: false, message: RETUR_MISSING_MSG, returs: [], total: 0, page: 1, total_pages: 1, summary: { total: 0, nilai: 0, menunggu: 0, sesuai: 0, tidak_sesuai: 0 }, range: { from, to }, alasan: RETUR_ALASAN });
+      if (isReturColErr(error)) return res.json({ ready: false, message: RETUR_MISSING_MSG, returs: [], total: 0, page: 1, total_pages: 1, summary: { total: 0, nilai: 0, menunggu: 0, sesuai: 0, tidak_sesuai: 0 }, range: { from, to }, alasan: RETUR_ALASAN, masalah: RETUR_MASALAH });
       return res.status(500).json({ error: 'Gagal mengambil data retur: ' + error.message });
     }
     all.push(...(data || []));
@@ -153,6 +153,7 @@ router.get('/', requireAuth, requireRole('admin', 'cs'), async (req, res) => {
     ready: true,
     range: { from, to },
     alasan: RETUR_ALASAN,
+    masalah: RETUR_MASALAH,
     summary,
     total: rows.length,
     page,
@@ -175,6 +176,9 @@ router.get('/', requireAuth, requireRole('admin', 'cs'), async (req, res) => {
       retur_alasan: o.retur_alasan || '',
       retur_catatan: o.retur_catatan || '',
       retur_by_name: names[o.retur_by] || null,
+      items: returOrderItems(o), // isi pesanan per SKU -> bahan form validasi
+      retur_items: Array.isArray(o.retur_items) ? o.retur_items : null, // detail hasil validasi
+      retur_masalah: o.retur_masalah || '',
       nilai,
     })),
   });
@@ -215,8 +219,11 @@ router.get('/export', requireAuth, requireRole('admin', 'cs'), async (req, res) 
   wb.creator = 'Flowmua';
   const ws = wb.addWorksheet('Retur');
   const HEAD = ['Waktu Retur (WIB)', 'Tanggal Pesanan', 'No. Pesanan', 'No. Resi', 'Toko', 'Platform', 'Jasa Kirim', 'SKU', 'Jumlah',
-    'Status Validasi', 'Hasil', 'Alasan', 'Catatan', 'Dicatat Oleh', 'Divalidasi Oleh', 'Waktu Validasi (WIB)', 'Nilai Retur'];
-  ws.columns = [18, 14, 24, 22, 22, 12, 18, 30, 9, 18, 14, 34, 30, 18, 18, 18, 18].map((width) => ({ width }));
+    'Status Validasi', 'Hasil', 'Kenapa Tidak Sesuai', 'Pcs Balik', 'Pcs Rusak', 'Pcs Masuk Stok', 'Detail per SKU',
+    'Alasan', 'Catatan', 'Dicatat Oleh', 'Divalidasi Oleh', 'Waktu Validasi (WIB)', 'Nilai Retur'];
+  ws.columns = [18, 14, 24, 22, 22, 12, 18, 30, 9, 18, 14, 26, 10, 10, 12, 44, 34, 30, 18, 18, 18, 18].map((width) => ({ width }));
+  const NILAI_COL = HEAD.length; // kolom terakhir
+  const NILAI_LETTER = ws.getColumn(NILAI_COL).letter;
   const head = ws.addRow(HEAD);
   head.height = 30;
   head.eachCell((c) => {
@@ -234,14 +241,18 @@ router.get('/export', requireAuth, requireRole('admin', 'cs'), async (req, res) 
     count[validated ? kondisi : 'menunggu'] += 1;
     totalNilai += nilai;
     const orderTs = o.waktu_pesanan_at || o.imported_at;
+    const det = validated && Array.isArray(o.retur_items) ? o.retur_items : null;
+    const sum = (k) => (det ? det.reduce((s, it) => s + (Number(it[k]) || 0), 0) : null);
+    const detText = det ? det.map((it) => `${it.sku}: balik ${it.qty_balik}/${it.qty_pesan}${it.qty_rusak ? `, rusak ${it.qty_rusak}` : ''}`).join('; ') : '';
     const row = ws.addRow([
       wibDateTime(o.retur_at), orderTs ? wibDate(orderTs) : '', o.no_pesanan, o.no_resi || '', o.toko || '', o.platform || '', o.opsi_pengiriman || '',
       o.sku || '', parseInt(String(o.jumlah || '').trim(), 10) || null,
       validated ? 'Sudah divalidasi' : 'Menunggu validasi',
-      kondisi === 'tidak_sesuai' ? 'Tidak sesuai' : validated ? 'Sesuai (stok masuk)' : 'Sesuai',
+      !validated ? '' : kondisi === 'tidak_sesuai' ? 'Tidak sesuai' : 'Sesuai (stok masuk)',
+      validated && kondisi === 'tidak_sesuai' ? o.retur_masalah || '' : '', sum('qty_balik'), sum('qty_rusak'), det ? sum('qty_balik') - sum('qty_rusak') : null, detText,
       o.retur_alasan || '', o.retur_catatan || '', names[o.retur_by] || '', names[o.retur_validated_by] || '', wibDateTime(o.retur_validated_at), nilai,
     ]);
-    row.getCell(17).numFmt = RP;
+    row.getCell(NILAI_COL).numFmt = RP;
     row.eachCell({ includeEmpty: true }, (c) => { c.font = { name: 'Calibri', size: 11 }; });
     const tint = !validated ? 'FFFFF2CC' : kondisi === 'tidak_sesuai' ? 'FFFDE2E1' : null; // kuning = menunggu, merah muda = tidak sesuai
     if (tint) [10, 11].forEach((c) => { row.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: tint } }; });
@@ -249,10 +260,10 @@ router.get('/export', requireAuth, requireRole('admin', 'cs'), async (req, res) 
   if (all.length) {
     const last = all.length + 1;
     const tot = ws.addRow(['TOTAL', null, { formula: `COUNTA(C2:C${last})`, result: all.length }]);
-    tot.getCell(17).value = { formula: `SUM(Q2:Q${last})`, result: totalNilai };
-    tot.getCell(17).numFmt = RP;
+    tot.getCell(NILAI_COL).value = { formula: `SUM(${NILAI_LETTER}2:${NILAI_LETTER}${last})`, result: totalNilai };
+    tot.getCell(NILAI_COL).numFmt = RP;
     tot.eachCell({ includeEmpty: true }, (c) => { c.font = { name: 'Calibri', size: 11, bold: true }; c.border = { top: { style: 'thin' } }; });
-    ws.autoFilter = { from: 'A1', to: { row: last, column: 17 } };
+    ws.autoFilter = { from: 'A1', to: { row: last, column: NILAI_COL } };
   } else {
     ws.addRow(['Tidak ada retur di rentang tanggal ini.']);
   }
@@ -292,9 +303,13 @@ router.patch('/:id', requireAuth, requireRole('admin', 'cs'), async (req, res) =
   res.json({ ok: true, ...data[0] });
 });
 
-// Validasi retur oleh admin/CS. Body: { kondisi: 'sesuai'|'tidak_sesuai' } = hasil akhir (boleh beda
-// dari cek packer). SESUAI -> stok masuk ke Inventory; TIDAK SESUAI -> stok tidak masuk (kalau
-// sebelumnya sempat divalidasi sesuai, stoknya ditarik lagi). Aman diulang / dikoreksi kapan saja.
+// Validasi retur oleh admin/CS, dengan detail per SKU.
+// Body: { items: [{ sku, balik, rusak }], masalah, catatan }
+//   balik = pcs yang benar-benar diterima kembali (0..qty pesanan), rusak = dari yang balik, berapa
+//   yang rusak / tidak layak jual. Masuk Inventory = balik - rusak.
+//   Semua balik & tidak ada rusak -> SESUAI. Selain itu TIDAK SESUAI dan `masalah` wajib diisi.
+// Body lama { kondisi } masih diterima (sesuai = semua balik, tidak_sesuai = tidak ada yang masuk).
+// Aman diulang / dikoreksi kapan saja: stok ikut menyesuaikan selisihnya.
 router.post('/:id/validate', requireAuth, requireRole('admin', 'cs'), async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'ID pesanan tidak valid' });
@@ -302,20 +317,49 @@ router.post('/:id/validate', requireAuth, requireRole('admin', 'cs'), async (req
   if (error) return res.status(500).json({ error: 'Gagal mencari pesanan' });
   if (!order || !order.retur_at) return res.status(404).json({ error: 'Pesanan retur tidak ditemukan' });
 
-  const kondisi = normKondisi((req.body || {}).kondisi ?? order.retur_kondisi);
-  const { error: updErr } = await supabase.from('orders')
-    .update({ retur_kondisi: kondisi, retur_validated_at: new Date().toISOString(), retur_validated_by: req.user.id })
-    .eq('id', id);
+  const body = req.body || {};
+  const orderItems = returOrderItems(order);
+  const int = (v, def) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : def; };
+  const clamp = (n, max) => Math.max(0, Math.min(max, n));
+  const input = new Map((Array.isArray(body.items) ? body.items : []).map((it) => [String((it && it.sku) || '').trim().toUpperCase(), it || {}]));
+  const legacy = !Array.isArray(body.items); // klien lama: cuma kirim { kondisi }
+  const legacyTidak = legacy && normKondisi(body.kondisi ?? order.retur_kondisi) === 'tidak_sesuai';
+  const items = orderItems.map((it) => {
+    const inp = input.get(it.sku) || {};
+    const balik = legacy ? (legacyTidak ? 0 : it.qty) : clamp(int(inp.balik, it.qty), it.qty);
+    return { sku: it.sku, qty_pesan: it.qty, qty_balik: balik, qty_rusak: legacy ? 0 : clamp(int(inp.rusak, 0), balik) };
+  });
+  // Pesanan tanpa SKU yang terbaca: tidak ada yang bisa dihitung, pakai pilihan kondisi apa adanya.
+  const kondisi = items.length
+    ? (items.every((it) => it.qty_balik === it.qty_pesan && !it.qty_rusak) ? 'sesuai' : 'tidak_sesuai')
+    : normKondisi(body.kondisi ?? order.retur_kondisi);
+  const masalah = kondisi === 'tidak_sesuai' ? text(body.masalah, 80) : '';
+  if (kondisi === 'tidak_sesuai' && !masalah && !legacy) return res.status(400).json({ error: 'Pilih dulu kenapa retur ini tidak sesuai.' });
+
+  const base = { retur_kondisi: kondisi, retur_validated_at: new Date().toISOString(), retur_validated_by: req.user.id };
+  if ('catatan' in body) base.retur_catatan = text(body.catatan, 300) || null;
+  let detailSaved = true;
+  let { error: updErr } = await supabase.from('orders').update({ ...base, retur_items: items, retur_masalah: masalah || null }).eq('id', id);
+  if (updErr && isDetailColErr(updErr)) { // kolom detail belum ada: validasi tetap jalan, detailnya saja yang tidak tersimpan
+    detailSaved = false;
+    ({ error: updErr } = await supabase.from('orders').update(base).eq('id', id));
+  }
   if (updErr) return res.status(500).json({ error: isValidasiColErr(updErr) ? VALIDASI_MISSING_MSG : 'Gagal memvalidasi retur: ' + updErr.message });
 
-  const restock = await adjustStockForRetur(order, req.user.id, kondisi === 'sesuai' ? 1 : -1);
-  let message;
-  if (restock.error) message = 'Retur divalidasi, tapi stok gagal diubah: ' + restock.error;
-  else if (kondisi === 'tidak_sesuai') message = restock.restocked.length ? 'Divalidasi TIDAK SESUAI. Stok yang sempat masuk ditarik lagi.' : 'Divalidasi TIDAK SESUAI. Stok tidak masuk.';
-  else if (restock.restocked.length) message = `Divalidasi SESUAI. Stok masuk: ${restock.restocked.map((r) => `${r.sku} +${r.qty}`).join(', ')}.`;
-  else if (restock.skus_not_registered.length) message = `Divalidasi SESUAI. Stok tidak berubah: SKU belum terdaftar di Inventory (${restock.skus_not_registered.join(', ')}).`;
-  else message = 'Divalidasi SESUAI. Stok sudah masuk sebelumnya.';
-  res.json({ ok: true, no_pesanan: order.no_pesanan, kondisi, message, restock });
+  const targets = new Map(items.map((it) => [it.sku, it.qty_balik - it.qty_rusak]));
+  const restock = await adjustStockForRetur(order, req.user.id, 1, targets);
+  const masuk = restock.restocked.filter((r) => r.qty > 0).map((r) => `${r.sku} +${r.qty}`);
+  const tarik = restock.restocked.filter((r) => r.qty < 0).map((r) => `${r.sku} ${r.qty}`);
+  let message = kondisi === 'sesuai' ? 'Divalidasi SESUAI.' : `Divalidasi TIDAK SESUAI${masalah ? ` (${masalah})` : ''}.`;
+  if (restock.error) message += ' Tapi stok gagal diubah: ' + restock.error;
+  else {
+    if (masuk.length) message += ` Stok masuk: ${masuk.join(', ')}.`;
+    if (tarik.length) message += ` Stok ditarik lagi: ${tarik.join(', ')}.`;
+    if (!masuk.length && !tarik.length) message += ' Stok tidak berubah.';
+    if (restock.skus_not_registered.length) message += ` SKU belum terdaftar di Inventory: ${restock.skus_not_registered.join(', ')}.`;
+  }
+  if (!detailSaved) message += ' ' + DETAIL_MISSING_MSG;
+  res.json({ ok: true, no_pesanan: order.no_pesanan, kondisi, masalah, items, detail_saved: detailSaved, message, restock });
 });
 
 // Batalkan retur (salah scan). Stok yang sempat dikembalikan ikut ditarik lagi.
@@ -328,7 +372,8 @@ router.delete('/:id', requireAuth, requireRole('admin', 'cs'), async (req, res) 
   if (!order.retur_at) return res.status(409).json({ error: 'Pesanan ini tidak berstatus retur' });
 
   const clear = { retur_at: null, retur_by: null, retur_kondisi: null, retur_alasan: null, retur_catatan: null };
-  let { error: updErr } = await supabase.from('orders').update({ ...clear, retur_validated_at: null, retur_validated_by: null }).eq('id', id);
+  let { error: updErr } = await supabase.from('orders').update({ ...clear, retur_validated_at: null, retur_validated_by: null, retur_items: null, retur_masalah: null }).eq('id', id);
+  if (updErr && isDetailColErr(updErr)) ({ error: updErr } = await supabase.from('orders').update({ ...clear, retur_validated_at: null, retur_validated_by: null }).eq('id', id)); // kolom detail belum ada
   if (updErr && isValidasiColErr(updErr)) ({ error: updErr } = await supabase.from('orders').update(clear).eq('id', id)); // kolom validasi belum ada
   if (updErr) return res.status(500).json({ error: 'Gagal membatalkan retur: ' + updErr.message });
 

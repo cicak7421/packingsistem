@@ -527,7 +527,7 @@
 
   <div id="panel-retur" style="display:none;">
     <h1 class="page-title">Retur</h1>
-    <p class="page-subtitle">Paket yang balik ke gudang. Tim packing mencatatnya lewat <b>Scan Packing &rarr; mode Retur</b> dan menandai <b>Sesuai</b> atau <b>Tidak sesuai</b>. Stok <b>belum</b> berubah sampai admin/CS <b>memvalidasi</b> di daftar bawah: divalidasi Sesuai &rarr; stok masuk ke Inventory, Tidak sesuai &rarr; stok tidak masuk. Alasan retur diisi di sini dan tidak terlihat oleh akun packing. Pesanan retur otomatis dihitung Rp0 di Estimasi Penghasilan.</p>
+    <p class="page-subtitle">Paket yang balik ke gudang. Tim packing mencatatnya lewat <b>Scan Packing &rarr; mode Retur</b> (cukup scan resi). Stok <b>belum</b> berubah sampai admin/CS <b>memvalidasi</b> di daftar bawah: isi per SKU berapa pcs yang <b>balik</b> dan berapa yang <b>rusak</b> &mdash; yang masuk Inventory = balik &minus; rusak. Kalau ada yang kurang / rusak, hasilnya <b>Tidak sesuai</b> dan wajib diisi kenapa. Alasan retur diisi di sini dan tidak terlihat oleh akun packing. Pesanan retur otomatis dihitung Rp0 di Estimasi Penghasilan.</p>
 
     <div id="returNotice"></div>
 
@@ -540,16 +540,15 @@
 
     <div class="card">
       <div class="card-title">Catat retur manual</div>
-      <div class="retur-form">
+      <div class="retur-form" style="grid-template-columns:1fr 1fr;">
         <div><label for="returValue">No. Resi / No. Pesanan</label><input id="returValue" type="text" placeholder="Ketik atau scan pakai scanner USB" onkeydown="if(event.key==='Enter'){event.preventDefault(); submitReturManual();}"></div>
-        <div><label for="returKondisi">Hasil cek</label><select id="returKondisi"><option value="sesuai">Sesuai</option><option value="tidak_sesuai">Tidak sesuai</option></select></div>
         <div><label for="returAlasan">Alasan</label><select id="returAlasan"></select></div>
       </div>
       <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:12px;">
         <input id="returCatatan" type="text" maxlength="300" placeholder="Catatan (opsional)" style="flex:1; min-width:200px; margin:0;">
         <button type="button" class="btn" id="returSubmitBtn" style="width:auto; margin:0;" onclick="submitReturManual()">Catat Retur</button>
       </div>
-      <div class="hint" style="margin-top:8px;">Retur yang dicatat di sini juga masuk daftar sebagai <b>menunggu validasi</b> &mdash; stok baru berubah setelah divalidasi.</div>
+      <div class="hint" style="margin-top:8px;">Retur yang dicatat di sini juga masuk daftar sebagai <b>menunggu validasi</b> &mdash; detail barang (pcs balik / rusak) diisi saat validasi, dan stok baru berubah setelah itu.</div>
       <div class="hint" id="returMsg" style="margin-top:4px;"></div>
     </div>
 
@@ -569,7 +568,7 @@
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Waktu Retur</th><th>No. Pesanan / Resi</th><th>Toko</th><th>SKU</th><th>Hasil Cek</th><th>Validasi</th><th>Alasan</th><th>Dicatat oleh</th><th style="text-align:right;">Nilai</th><th></th></tr></thead>
+          <thead><tr><th>Waktu Retur</th><th>No. Pesanan / Resi</th><th>Toko</th><th>SKU</th><th>Validasi</th><th>Detail Barang Balik</th><th>Alasan</th><th>Dicatat oleh</th><th style="text-align:right;">Nilai</th><th></th></tr></thead>
           <tbody id="returTable"><tr><td colspan="10" class="empty-state">Memuat data...</td></tr></tbody>
         </table>
       </div>
@@ -610,6 +609,48 @@
     </div>
   </div>
 
+  <div class="modal-overlay" id="returValOverlay" style="display:none;" onclick="if(event.target===this) closeReturValidasi();">
+    <div class="modal-box" style="max-width:620px;" role="dialog" aria-modal="true" aria-labelledby="rvTitle">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title" id="rvTitle">Validasi retur</div>
+          <div class="modal-subtitle" id="rvSubtitle"></div>
+        </div>
+        <button class="modal-close" onclick="closeReturValidasi()" aria-label="Tutup">&times;</button>
+      </div>
+      <p class="hint" style="margin:6px 0 10px;">Isi sesuai barang yang benar-benar ada di paket. <b>Balik</b> = pcs yang diterima kembali. <b>Rusak</b> = dari yang balik, berapa yang rusak / tidak layak jual. Yang masuk stok = balik &minus; rusak.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>SKU</th><th style="text-align:center;">Dipesan</th><th style="text-align:center;">Balik</th><th style="text-align:center;">Rusak</th><th style="text-align:center;">Masuk stok</th></tr></thead>
+          <tbody id="rvItems"></tbody>
+        </table>
+      </div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
+        <button type="button" class="btn-outline" style="width:auto; margin:0; padding:6px 10px;" onclick="returValPreset('semua')">Semua balik lengkap</button>
+        <button type="button" class="btn-outline" style="width:auto; margin:0; padding:6px 10px;" onclick="returValPreset('kosong')">Tidak ada yang balik</button>
+      </div>
+      <div id="rvKondisiWrap" style="display:none; margin-top:12px;">
+        <label for="rvKondisi">Hasil cek</label>
+        <select id="rvKondisi" onchange="returValRecalc()"><option value="sesuai">Sesuai</option><option value="tidak_sesuai">Tidak sesuai</option></select>
+        <div class="hint">SKU pesanan ini tidak terbaca, jadi stok tidak berubah otomatis.</div>
+      </div>
+      <div id="rvHasil" style="margin-top:14px;"></div>
+      <div id="rvMasalahWrap" style="display:none; margin-top:12px;">
+        <label for="rvMasalah">Kenapa tidak sesuai? *</label>
+        <select id="rvMasalah"></select>
+      </div>
+      <div style="margin-top:12px;">
+        <label for="rvCatatan">Catatan (opsional)</label>
+        <input id="rvCatatan" type="text" maxlength="300" placeholder="Contoh: 1 pcs penyok, dus sobek">
+      </div>
+      <div class="hint" id="rvMsg" style="margin-top:6px; color:var(--danger);"></div>
+      <div class="modal-actions">
+        <button class="btn-outline" onclick="closeReturValidasi()">Batal</button>
+        <button class="btn" id="rvSubmitBtn" onclick="submitReturValidasi()">Simpan validasi</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="permOverlay" style="display:none;" onclick="if(event.target===this) closePermModal();">
     <div class="modal-box" style="max-width:400px;">
       <div class="modal-header">
@@ -632,7 +673,7 @@
 
 <script src="js/afParser.js?v=b03e8f03"></script>
 <script src="js/dashboard.js?v=66b3b6f7"></script>
-<script src="js/retur.js?v=0a208686"></script>
+<script src="js/retur.js?v=012630f7"></script>
 <script src="js/liveSync.js?v=46c9e3cf"></script>
 </body>
 </html>
