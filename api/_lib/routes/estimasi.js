@@ -3,7 +3,7 @@ const supabase = require('../supabase');
 const { requireAuth, requireRole } = require('../auth');
 const { splitSkuQty } = require('../skuHelpers');
 const { lineValue, splitBundleSku, AF_DEFAULT_POTONGAN_PERSEN, SKU_PRICE_EXACT, PKT50_PRICE_BY_SIZE } = require('../skuPrices');
-const { RETUR_COLS, returReady } = require('../returHelpers');
+const { RETUR_COLS, returReady, normKondisi } = require('../returHelpers');
 
 const router = express.Router();
 
@@ -358,7 +358,7 @@ router.get('/orders', requireAuth, requireRole('admin', 'cs'), async (req, res) 
       estimasi: o.retur_at ? 0 : e.estimasi,
       retur: !!o.retur_at,
       retur_nilai: o.retur_at ? e.estimasi : 0,
-      retur_kondisi: o.retur_kondisi || null,
+      retur_kondisi: o.retur_at ? normKondisi(o.retur_kondisi) : null,
       retur_alasan: o.retur_alasan || null,
       sumber: e.sumber,
       bruto: e.bruto ?? null,
@@ -542,7 +542,7 @@ router.get('/export', requireAuth, requireRole('admin', 'cs'), async (req, res) 
     if (retur) {
       d.retur += 1;
       d.returAmount += e.estimasi;
-      returRows.push({ day, returDay: wibDateStr(o.retur_at), no: o.no_pesanan, toko: tokoName(o) || '-', sku: splitLabel(skuItems) || o.sku || '', qty: e.qty, kondisi: o.retur_kondisi === 'rusak' ? 'Rusak' : 'Bagus (stok balik)', alasan: o.retur_alasan || '', amount: e.estimasi });
+      returRows.push({ day, returDay: wibDateStr(o.retur_at), no: o.no_pesanan, toko: tokoName(o) || '-', sku: splitLabel(skuItems) || o.sku || '', qty: e.qty, kondisi: normKondisi(o.retur_kondisi) === 'tidak_sesuai' ? 'Tidak sesuai' : 'Sesuai', alasan: o.retur_alasan || '', amount: e.estimasi });
     } else d.income += e.estimasi;
     // Harga satuan: kalau pesanan punya total harga (subtotal_pesanan) -> total / jumlah barang
     // (rata-rata kalau pesanannya multi-SKU, karena harga per SKU gak disimpen); kalau gak ada

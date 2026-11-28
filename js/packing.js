@@ -8,7 +8,7 @@ let html5QrCode;
 // Sengaja TIDAK diingat antar kunjungan: tiap buka halaman selalu mulai dari Packing, supaya
 // gak ada paket yang kecatat retur gara-gara mode kemarin masih nyangkut.
 let scanMode = 'packing';
-let returKondisi = 'bagus';
+let returKondisi = 'sesuai'; // 'sesuai' | 'tidak_sesuai' -- hasil cek packer; stok baru berubah setelah divalidasi admin/CS
 
 function setScanMode(mode) {
   scanMode = mode === 'retur' ? 'retur' : 'packing';
@@ -22,7 +22,7 @@ function setScanMode(mode) {
 }
 
 function setReturKondisi(k) {
-  returKondisi = k === 'rusak' ? 'rusak' : 'bagus';
+  returKondisi = k === 'tidak_sesuai' ? 'tidak_sesuai' : 'sesuai';
   document.querySelectorAll('#returKondisiSeg button').forEach((b) => b.classList.toggle('active', b.dataset.kondisi === returKondisi));
 }
 
@@ -187,7 +187,7 @@ async function submitScan(value) {
   }, cooldown);
 }
 
-// Mode Retur: catat paket balik. Packer cuma pilih kondisi barang; ALASAN retur diisi & dilihat
+// Mode Retur: catat paket balik. Packer cuma pilih hasil cek (Sesuai / Tidak sesuai); ALASAN retur diisi & dilihat
 // admin/CS saja (tab Retur di dashboard), tidak tampil di halaman ini.
 async function submitRetur(value) {
   try {
@@ -246,12 +246,12 @@ async function loadReturHistory() {
       return;
     }
     list.innerHTML = data.returs.slice(0, 15).map((r) => {
-      const rusak = r.retur_kondisi === 'rusak';
+      const rusak = ['tidak_sesuai', 'rusak'].includes(r.retur_kondisi);
       const time = new Date(r.retur_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
       return `<div class="history-item">
         <div class="row">
           <span>${escHtml(r.no_resi || r.no_pesanan)}</span>
-          <span class="badge ${rusak ? 'badge-danger' : 'badge-ok'}">${rusak ? 'Rusak' : 'Bagus'}</span>
+          <span class="badge ${rusak ? 'badge-danger' : 'badge-ok'}">${rusak ? 'Tidak sesuai' : 'Sesuai'}</span>
         </div>
         <div class="time">${time}</div>
       </div>`;

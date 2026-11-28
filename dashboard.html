@@ -7,7 +7,7 @@
 <meta name="theme-color" content="#05070d">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <script>(function(){try{var t=localStorage.getItem("flowmua_theme");if(!t)t="dark";if(t==="dark")document.documentElement.setAttribute("data-theme","dark")}catch(e){}})()</script>
-<link rel="stylesheet" href="css/style.css?v=9e81db18">
+<link rel="stylesheet" href="css/style.css?v=a9b4dd80">
 <!-- Font dimuat NON-blocking (tampilan langsung muncul pakai font sistem, lalu ganti mulus begitu font siap) -->
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" media="print" onload="this.media='all'">
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap"></noscript>
@@ -527,29 +527,30 @@
 
   <div id="panel-retur" style="display:none;">
     <h1 class="page-title">Retur</h1>
-    <p class="page-subtitle">Paket yang balik ke gudang. Tim packing mencatatnya lewat <b>Scan Packing &rarr; mode Retur</b> (cuma pilih kondisi barang); <b>alasan retur</b> diisi di sini oleh admin/CS dan tidak terlihat oleh akun packing. Di sini kamu juga bisa catat manual atau membatalkan yang salah scan. Pesanan retur otomatis dihitung Rp0 di Estimasi Penghasilan.</p>
+    <p class="page-subtitle">Paket yang balik ke gudang. Tim packing mencatatnya lewat <b>Scan Packing &rarr; mode Retur</b> dan menandai <b>Sesuai</b> atau <b>Tidak sesuai</b>. Stok <b>belum</b> berubah sampai admin/CS <b>memvalidasi</b> di daftar bawah: divalidasi Sesuai &rarr; stok masuk ke Inventory, Tidak sesuai &rarr; stok tidak masuk. Alasan retur diisi di sini dan tidak terlihat oleh akun packing. Pesanan retur otomatis dihitung Rp0 di Estimasi Penghasilan.</p>
 
     <div id="returNotice"></div>
 
     <div class="stat-row stat-row-4">
       <div class="stat-card"><div class="stat-value" id="returTotal" style="color:var(--danger);">-</div><div class="stat-label">Pesanan Retur</div></div>
       <div class="stat-card"><div class="stat-value" id="returNilai">-</div><div class="stat-label">Nilai Retur <span class="hint">(tidak jadi penghasilan)</span></div></div>
-      <div class="stat-card"><div class="stat-value" id="returBagus" style="color:var(--ok);">-</div><div class="stat-label">Barang Bagus <span class="hint">(stok balik)</span></div></div>
-      <div class="stat-card"><div class="stat-value" id="returRusak">-</div><div class="stat-label">Barang Rusak</div></div>
+      <div class="stat-card"><div class="stat-value" id="returMenunggu" style="color:var(--warn);">-</div><div class="stat-label">Menunggu Validasi</div></div>
+      <div class="stat-card"><div class="stat-value"><span id="returSesuai" style="color:var(--ok);">-</span> <span class="hint">/</span> <span id="returTidakSesuai">-</span></div><div class="stat-label">Sesuai <span class="hint">(stok masuk)</span> / Tidak Sesuai</div></div>
     </div>
 
     <div class="card">
       <div class="card-title">Catat retur manual</div>
       <div class="retur-form">
         <div><label for="returValue">No. Resi / No. Pesanan</label><input id="returValue" type="text" placeholder="Ketik atau scan pakai scanner USB" onkeydown="if(event.key==='Enter'){event.preventDefault(); submitReturManual();}"></div>
-        <div><label for="returKondisi">Kondisi barang</label><select id="returKondisi"><option value="bagus">Bagus (stok balik)</option><option value="rusak">Rusak</option></select></div>
+        <div><label for="returKondisi">Hasil cek</label><select id="returKondisi"><option value="sesuai">Sesuai</option><option value="tidak_sesuai">Tidak sesuai</option></select></div>
         <div><label for="returAlasan">Alasan</label><select id="returAlasan"></select></div>
       </div>
       <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:12px;">
         <input id="returCatatan" type="text" maxlength="300" placeholder="Catatan (opsional)" style="flex:1; min-width:200px; margin:0;">
         <button type="button" class="btn" id="returSubmitBtn" style="width:auto; margin:0;" onclick="submitReturManual()">Catat Retur</button>
       </div>
-      <div class="hint" id="returMsg" style="margin-top:8px;"></div>
+      <div class="hint" style="margin-top:8px;">Retur yang dicatat di sini juga masuk daftar sebagai <b>menunggu validasi</b> &mdash; stok baru berubah setelah divalidasi.</div>
+      <div class="hint" id="returMsg" style="margin-top:4px;"></div>
     </div>
 
     <div class="card">
@@ -564,8 +565,8 @@
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Waktu Retur</th><th>No. Pesanan / Resi</th><th>Toko</th><th>SKU</th><th>Kondisi</th><th>Alasan</th><th>Dicatat oleh</th><th style="text-align:right;">Nilai</th><th></th></tr></thead>
-          <tbody id="returTable"><tr><td colspan="9" class="empty-state">Memuat data...</td></tr></tbody>
+          <thead><tr><th>Waktu Retur</th><th>No. Pesanan / Resi</th><th>Toko</th><th>SKU</th><th>Hasil Cek</th><th>Validasi</th><th>Alasan</th><th>Dicatat oleh</th><th style="text-align:right;">Nilai</th><th></th></tr></thead>
+          <tbody id="returTable"><tr><td colspan="10" class="empty-state">Memuat data...</td></tr></tbody>
         </table>
       </div>
       <div class="pagination-bar">
@@ -626,8 +627,8 @@
 </div>
 
 <script src="js/afParser.js?v=b03e8f03"></script>
-<script src="js/dashboard.js?v=bf0eb441"></script>
-<script src="js/retur.js?v=5a6a7fbf"></script>
+<script src="js/dashboard.js?v=932b6659"></script>
+<script src="js/retur.js?v=65de177e"></script>
 <script src="js/liveSync.js?v=46c9e3cf"></script>
 </body>
 </html>

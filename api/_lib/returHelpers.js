@@ -7,7 +7,11 @@ const { parseSkuLines, reconcileRakBreakdown } = require('./inventoryHelpers');
 
 const RETUR_COLS = 'retur_at, retur_kondisi, retur_alasan';
 const RETUR_MISSING_MSG = 'Kolom retur belum ada di database. Jalankan migration-retur.sql di Supabase SQL Editor dulu.';
-const isReturColErr = (err) => /retur_(at|by|kondisi|alasan|catatan)/i.test(String((err && err.message) || ''));
+const isReturColErr = (err) => /retur_(at|by|kondisi|alasan|catatan|validated)/i.test(String((err && err.message) || ''));
+const isValidasiColErr = (err) => /retur_validated/i.test(String((err && err.message) || ''));
+const VALIDASI_MISSING_MSG = 'Kolom validasi retur belum ada di database. Jalankan ulang migration-retur.sql di Supabase SQL Editor.';
+// Kondisi hasil cek fisik: 'sesuai' | 'tidak_sesuai'. Data lama: bagus -> sesuai, rusak -> tidak_sesuai.
+const normKondisi = (v) => (['tidak_sesuai', 'rusak'].includes(String(v || '').toLowerCase()) ? 'tidak_sesuai' : 'sesuai');
 
 const RETUR_ALASAN = ['Gagal kirim / alamat tidak ditemukan', 'Pembeli menolak / tidak di tempat', 'Pembeli ajukan pengembalian', 'Barang rusak / cacat', 'Salah kirim barang', 'Lainnya'];
 
@@ -66,4 +70,4 @@ async function adjustStockForRetur(order, userId, dir) {
   return out;
 }
 
-module.exports = { RETUR_COLS, RETUR_MISSING_MSG, RETUR_ALASAN, isReturColErr, returReady, adjustStockForRetur };
+module.exports = { RETUR_COLS, RETUR_MISSING_MSG, VALIDASI_MISSING_MSG, RETUR_ALASAN, isReturColErr, isValidasiColErr, normKondisi, returReady, adjustStockForRetur };

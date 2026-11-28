@@ -9,8 +9,11 @@
 
 alter table orders add column if not exists retur_at timestamptz;
 alter table orders add column if not exists retur_by integer references users(id);
-alter table orders add column if not exists retur_kondisi text; -- bagus (stok balik ke inventory) | rusak (stok tidak balik)
+alter table orders add column if not exists retur_kondisi text; -- sesuai | tidak_sesuai (hasil cek fisik; data lama: bagus | rusak)
 alter table orders add column if not exists retur_alasan text;
 alter table orders add column if not exists retur_catatan text;
+-- Validasi admin/CS: stok baru masuk ke Inventory SETELAH retur divalidasi "sesuai".
+alter table orders add column if not exists retur_validated_at timestamptz;
+alter table orders add column if not exists retur_validated_by integer references users(id);
 
 create index if not exists idx_orders_retur_at on orders(retur_at) where retur_at is not null;

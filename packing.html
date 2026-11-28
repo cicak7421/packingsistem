@@ -7,7 +7,7 @@
 <meta name="theme-color" content="#05070d">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <script>(function(){try{var t=localStorage.getItem("flowmua_theme");if(!t)t="dark";if(t==="dark")document.documentElement.setAttribute("data-theme","dark")}catch(e){}})()</script>
-<link rel="stylesheet" href="css/style.css?v=9e81db18">
+<link rel="stylesheet" href="css/style.css?v=a9b4dd80">
 <!-- Font dimuat NON-blocking (tampilan langsung muncul pakai font sistem, lalu ganti mulus begitu font siap) -->
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" media="print" onload="this.media='all'">
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap"></noscript>
@@ -33,11 +33,12 @@
   <div class="retur-banner">MODE RETUR — paket yang discan dicatat sebagai paket balik (retur), bukan packing.</div>
 
   <div class="card" id="returOptions" style="display:none;">
-    <div class="card-title">Kondisi barang retur</div>
-    <div class="seg" id="returKondisiSeg" style="margin-bottom:0;">
-      <button type="button" data-kondisi="bagus" class="active" onclick="setReturKondisi('bagus')">Bagus<small>stok balik ke Inventory</small></button>
-      <button type="button" data-kondisi="rusak" onclick="setReturKondisi('rusak')">Rusak<small>stok tidak balik</small></button>
+    <div class="card-title">Hasil cek barang retur</div>
+    <div class="seg" id="returKondisiSeg">
+      <button type="button" data-kondisi="sesuai" class="active" onclick="setReturKondisi('sesuai')">Sesuai<small>isi paket cocok dengan pesanan</small></button>
+      <button type="button" data-kondisi="tidak_sesuai" onclick="setReturKondisi('tidak_sesuai')">Tidak sesuai<small>kurang, beda barang, atau rusak</small></button>
     </div>
+    <div class="hint">Stok belum berubah saat discan. Admin/CS memvalidasi dulu, baru stoknya masuk.</div>
   </div>
 
   <div class="card" id="scanCard">
@@ -66,6 +67,6 @@
 </div>
 
 <script src="js/voicePlayer.js?v=d7a8c1f3"></script>
-<script src="js/packing.js?v=dbe2a608"></script>
+<script src="js/packing.js?v=7a1dd3dd"></script>
 </body>
 </html>

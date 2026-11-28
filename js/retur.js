@@ -60,25 +60,34 @@
       const s = data.summary || {};
       $('returTotal').textContent = estNum(s.total);
       $('returNilai').textContent = estRupiah(s.nilai);
-      $('returBagus').textContent = estNum(s.bagus);
-      $('returRusak').textContent = estNum(s.rusak);
+      $('returMenunggu').textContent = estNum(s.menunggu);
+      $('returSesuai').textContent = estNum(s.sesuai);
+      $('returTidakSesuai').textContent = estNum(s.tidak_sesuai);
 
       state.totalPages = data.total_pages || 1;
       if (!data.returs.length) {
-        tbody.innerHTML = '<tr><td colspan="9" class="empty-state">Belum ada retur di rentang tanggal ini.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="10" class="empty-state">Belum ada retur di rentang tanggal ini.</td></tr>';
       } else {
         tbody.innerHTML = data.returs.map((r) => {
-          const rusak = r.retur_kondisi === 'rusak';
-          return `<tr>
+          const tidak = r.retur_kondisi === 'tidak_sesuai';
+          // Belum divalidasi: 2 tombol (Sesuai -> stok masuk / Tidak sesuai). Sudah: status + tombol koreksi.
+          const validasi = r.validated
+            ? `<span class="badge ${tidak ? 'badge-danger' : 'badge-ok'}">${tidak ? 'Tidak sesuai' : 'Sesuai · stok masuk'}</span><div class="hint">${estEsc(r.retur_validated_by_name || '')}</div>`
+            : '<span class="badge badge-warn">Menunggu</span>';
+          const aksi = r.validated
+            ? `<button type="button" class="btn-outline" data-id="${r.id}" data-no="${estEsc(r.no_pesanan)}" data-kondisi="${tidak ? 'sesuai' : 'tidak_sesuai'}" onclick="validateRetur(this)">Ubah jadi ${tidak ? 'Sesuai' : 'Tidak sesuai'}</button>`
+            : `<button type="button" class="btn-outline btn-ya" data-id="${r.id}" data-no="${estEsc(r.no_pesanan)}" data-kondisi="sesuai" onclick="validateRetur(this)">Sesuai</button><button type="button" class="btn-outline btn-tidak" data-id="${r.id}" data-no="${estEsc(r.no_pesanan)}" data-kondisi="tidak_sesuai" onclick="validateRetur(this)">Tidak sesuai</button>`;
+          return `<tr${r.validated ? '' : ' class="row-menunggu"'}>
             <td style="white-space:nowrap;">${estEsc(fmtTime(r.retur_at))}</td>
             <td>${estEsc(r.no_pesanan)}<div class="hint">${estEsc(r.no_resi || '-')}</div></td>
             <td>${estEsc(r.toko || '-')}</td>
             <td>${typeof formatSkuChips === 'function' ? formatSkuChips(r.sku) : estEsc(r.sku)}</td>
-            <td><span class="badge ${rusak ? 'badge-danger' : 'badge-ok'}">${rusak ? 'Rusak' : 'Bagus'}</span></td>
+            <td>${r.validated ? '<span class="hint">-</span>' : `<span class="badge ${tidak ? 'badge-danger' : 'badge-muted'}">${tidak ? 'Tidak sesuai' : 'Sesuai'}</span><div class="hint">cek packer</div>`}</td>
+            <td>${validasi}</td>
             <td>${alasanSelect(r)}${r.retur_catatan ? `<div class="hint">${estEsc(r.retur_catatan)}</div>` : ''}</td>
             <td>${estEsc(r.retur_by_name || '-')}</td>
             <td style="text-align:right;"><b>${estRupiah(r.nilai)}</b></td>
-            <td style="text-align:right;"><button type="button" class="btn-outline" style="width:auto; margin:0; padding:6px 10px;" data-id="${r.id}" data-no="${estEsc(r.no_pesanan)}" onclick="cancelRetur(this)">Batalkan</button></td>
+            <td><div class="retur-actions">${aksi}<button type="button" class="btn-outline" data-id="${r.id}" data-no="${estEsc(r.no_pesanan)}" onclick="cancelRetur(this)">Batalkan</button></div></td>
           </tr>`;
         }).join('');
       }
@@ -89,7 +98,7 @@
       $('returNextBtn').disabled = state.page >= state.totalPages;
     } catch (e) {
       if (seq !== state.seq) return;
-      tbody.innerHTML = `<tr><td colspan="9" class="empty-state">${estEsc(e.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="10" class="empty-state">${estEsc(e.message)}</td></tr>`;
     }
   }
 
@@ -167,6 +176,24 @@
       msg.textContent = e.message || 'Gagal mencatat retur';
       say(e.message || 'Gagal mencatat retur', 'err');
     } finally {
+      btn.disabled = false;
+    }
+  };
+
+  // Validasi (atau koreksi) hasil retur. Sesuai -> stok masuk ke Inventory; Tidak sesuai -> tidak.
+  window.validateRetur = async function (btn) {
+    const sesuai = btn.dataset.kondisi === 'sesuai';
+    const tanya = sesuai
+      ? `Validasi retur ${btn.dataset.no} sebagai SESUAI?\n\nStok barangnya akan MASUK ke Inventory.`
+      : `Validasi retur ${btn.dataset.no} sebagai TIDAK SESUAI?\n\nStok TIDAK masuk ke Inventory (kalau sempat masuk, ditarik lagi).`;
+    if (!confirm(tanya)) return;
+    btn.disabled = true;
+    try {
+      const data = await api('/retur/' + btn.dataset.id + '/validate', { method: 'POST', body: JSON.stringify({ kondisi: btn.dataset.kondisi }) });
+      say(`${data.no_pesanan}: ${data.message}`, 'ok');
+      loadRetur();
+    } catch (e) {
+      say(e.message || 'Gagal memvalidasi retur', 'err');
       btn.disabled = false;
     }
   };

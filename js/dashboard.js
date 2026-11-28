@@ -2377,7 +2377,7 @@ async function loadEstimasiOrders() {
         const acuan = o.sku_acuan && o.sku_acuan.length ? ` <span class="badge badge-muted tag-inline" title="Harga dari price list (satuan x pcs), cuma acuan: ${estEsc(o.sku_acuan.join(', '))}">Harga acuan</span>` : '';
         const hasSplit = o.sku_split && /dari PKT/i.test(o.sku_split);
         const splitNote = hasSplit ? `<div class="hint" style="margin-top:2px;">Split: ${estEsc(o.sku_split)}</div>` : '';
-        const returTag = o.retur ? ` <span class="badge badge-danger tag-inline" title="${estEsc('Retur' + (o.retur_alasan ? ': ' + o.retur_alasan : '') + (o.retur_kondisi === 'rusak' ? ' (barang rusak)' : ' (stok balik)'))}">RETUR</span>` : '';
+        const returTag = o.retur ? ` <span class="badge badge-danger tag-inline" title="${estEsc('Retur' + (o.retur_alasan ? ': ' + o.retur_alasan : '') + (o.retur_kondisi === 'tidak_sesuai' ? ' (tidak sesuai)' : ' (sesuai)'))}">RETUR</span>` : '';
         const estCell = o.retur ? `<span class="est-strike">${estRupiah(o.retur_nilai)}</span> <b>Rp0</b>` : `<b>${estRupiah(o.estimasi)}</b>`;
         return `<tr${o.retur ? ' class="row-retur"' : ''}>
           <td>${estEsc(o.no_pesanan)}${returTag}${tag}${acuan}${warn}</td>
